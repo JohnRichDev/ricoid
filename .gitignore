@@ -35,3 +35,6 @@ yarn.lock
 
 # Ignore coverage if present
 coverage/
+
+# data - settings.json
+data
