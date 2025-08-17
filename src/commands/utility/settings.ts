@@ -31,6 +31,8 @@ export default {
 		],
 	},
 	async execute(interaction) {
+		await interaction.deferReply();
+
 		const category = interaction.options.getString('category', true);
 		const action = interaction.options.getString('action', true);
 		const target = interaction.options.getString('target');
@@ -39,16 +41,23 @@ export default {
 		const module = getModule(category);
 
 		if (!module) {
-			await interaction.reply(`Unknown settings category: ${category}`);
+			await interaction.editReply(`Unknown settings category: ${category}`);
 			return;
 		}
 
 		try {
 			const result = await module.execute(interaction, action, target, settings);
-			await interaction.reply(result.reply);
+			await interaction.editReply(result.reply);
 		} catch (error) {
 			console.error('Settings command error:', error);
-			await interaction.reply('An error occurred while processing the settings command.');
+
+			if (!interaction.replied) {
+				try {
+					await interaction.editReply('An error occurred while processing the settings command.');
+				} catch (replyError) {
+					console.error('Error sending error reply:', replyError);
+				}
+			}
 		}
 	},
 } satisfies Command;

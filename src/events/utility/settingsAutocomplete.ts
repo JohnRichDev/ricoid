@@ -3,25 +3,29 @@ import { encodeChoiceValue, decodeChoiceValue } from '../../util/choiceEncoding.
 import { getAllActions, getActionsForCategory } from '../../commands/utility/settings/registry.js';
 
 export async function handleSettingsAutocomplete(interaction: AutocompleteInteraction) {
-	const focused = interaction.options.getFocused(true);
+	try {
+		const focused = interaction.options.getFocused(true);
 
-	if (focused.name === 'action') {
-		const rawCategory = interaction.options.getString('category');
-		const category = rawCategory ? decodeChoiceValue(rawCategory) : undefined;
+		if (focused.name === 'action') {
+			const rawCategory = interaction.options.getString('category');
+			const category = rawCategory ? decodeChoiceValue(rawCategory) : undefined;
 
-		const allActions = getAllActions();
+			const allActions = getAllActions();
 
-		let allowed = allActions;
-		if (category) {
-			allowed = getActionsForCategory(category);
+			let allowed = allActions;
+			if (category) {
+				allowed = getActionsForCategory(category);
+			}
+
+			const input = String(focused.value ?? '').toLowerCase();
+			const suggestions = allowed
+				.filter((a) => a.name.toLowerCase().includes(input) || a.value.toLowerCase().includes(input))
+				.slice(0, 25)
+				.map((a) => ({ name: a.name, value: encodeChoiceValue(a.value) }));
+
+			await interaction.respond(suggestions);
 		}
-
-		const input = String(focused.value ?? '').toLowerCase();
-		const suggestions = allowed
-			.filter((a) => a.name.toLowerCase().includes(input) || a.value.toLowerCase().includes(input))
-			.slice(0, 25)
-			.map((a) => ({ name: a.name, value: encodeChoiceValue(a.value) }));
-
-		await interaction.respond(suggestions);
+	} catch (error) {
+		console.error('Error in settings autocomplete:', error);
 	}
 }
