@@ -1,5 +1,6 @@
 import type { AutocompleteInteraction } from 'discord.js';
 import { encodeChoiceValue, decodeChoiceValue } from '../../util/choiceEncoding.js';
+import { getAllActions, getActionsForCategory } from '../../commands/utility/settings/registry.js';
 
 export async function handleSettingsAutocomplete(interaction: AutocompleteInteraction) {
 	const focused = interaction.options.getFocused(true);
@@ -8,19 +9,11 @@ export async function handleSettingsAutocomplete(interaction: AutocompleteIntera
 		const rawCategory = interaction.options.getString('category');
 		const category = rawCategory ? decodeChoiceValue(rawCategory) : undefined;
 
-		const allActions = [
-			{ name: 'View', value: 'view' },
-			{ name: 'Add', value: 'add' },
-			{ name: 'Remove', value: 'remove' },
-			{ name: 'Set', value: 'set' },
-			{ name: 'Reset', value: 'reset' },
-		];
+		const allActions = getAllActions();
 
 		let allowed = allActions;
-		if (category === 'access') {
-			allowed = allActions.filter((a) => ['view', 'add', 'remove'].includes(a.value));
-		} else if (category === 'prompt') {
-			allowed = allActions.filter((a) => ['view', 'set', 'reset'].includes(a.value));
+		if (category) {
+			allowed = getActionsForCategory(category);
 		}
 
 		const input = String(focused.value ?? '').toLowerCase();
