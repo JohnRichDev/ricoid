@@ -11,9 +11,13 @@ export default {
 	async execute(interaction) {
 		if (interaction.isAutocomplete()) {
 			if (interaction.commandName === 'settings') {
-				await handleSettingsAutocomplete(interaction);
-				return;
+				try {
+					await handleSettingsAutocomplete(interaction);
+				} catch (error) {
+					console.error('Error executing autocomplete for settings:', error);
+				}
 			}
+			return;
 		}
 
 		if (interaction.isChatInputCommand()) {
@@ -23,7 +27,19 @@ export default {
 				throw new Error(`Command '${interaction.commandName}' not found.`);
 			}
 
-			await command.execute(interaction);
+			try {
+				await command.execute(interaction);
+			} catch (error) {
+				console.error(`Error executing command ${interaction.commandName}:`, error);
+
+				if (!interaction.replied && !interaction.deferred) {
+					try {
+						await interaction.reply('An error occurred while executing this command.');
+					} catch (replyError) {
+						console.error('Error sending error reply:', replyError);
+					}
+				}
+			}
 		}
 	},
 } satisfies Event<Events.InteractionCreate>;
