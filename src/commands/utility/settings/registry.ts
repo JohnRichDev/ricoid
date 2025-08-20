@@ -1,10 +1,12 @@
 import type { SettingsModuleRegistry, SettingsCategoryModule, SettingsAction } from './types.js';
 import { accessModule } from './accessModule.js';
 import { promptModule } from './promptModule.js';
+import { channelModule } from './channelModule.js';
 
 export const settingsRegistry: SettingsModuleRegistry = {
 	access: accessModule,
 	prompt: promptModule,
+	channel: channelModule,
 };
 
 export function getAllCategories(): Array<{ name: string; value: string }> {
