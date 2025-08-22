@@ -4,6 +4,7 @@ import { resolve, dirname } from 'node:path';
 export type StoredSettings = {
 	prompt?: string;
 	access?: string[];
+	channel?: string;
 };
 
 const filePath = resolve(process.cwd(), 'data', 'settings.json');
