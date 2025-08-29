@@ -62,6 +62,234 @@ export function createAITools() {
 				},
 			},
 			{
+				name: 'createCategory',
+				description: 'Create a new category in a Discord server to organize channels',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (optional if bot is only in one server)',
+						},
+						categoryName: {
+							type: Type.STRING,
+							description: 'Name for the new category',
+						},
+					},
+					required: ['categoryName'],
+				},
+			},
+			{
+				name: 'deleteChannel',
+				description: 'Delete a channel from a Discord server',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (optional if bot is only in one server)',
+						},
+						channelName: {
+							type: Type.STRING,
+							description: 'Name of the channel to delete',
+						},
+						channelType: {
+							type: Type.STRING,
+							description: 'Type of channel to delete (text, voice, or category)',
+							enum: ['text', 'voice', 'category'],
+						},
+					},
+					required: ['channelName'],
+				},
+			},
+			{
+				name: 'deleteAllChannels',
+				description: 'Delete all channels from a Discord server, with optional exclusions',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (optional if bot is only in one server)',
+						},
+						excludeCategories: {
+							type: Type.ARRAY,
+							description: 'Array of category names to exclude from deletion',
+							items: {
+								type: Type.STRING,
+							},
+						},
+						excludeChannels: {
+							type: Type.ARRAY,
+							description: 'Array of channel names to exclude from deletion',
+							items: {
+								type: Type.STRING,
+							},
+						},
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'listChannels',
+				description: 'List all channels in a Discord server, optionally filtered by category',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (optional if bot is only in one server)',
+						},
+						category: {
+							type: Type.STRING,
+							description: 'Optional category name to filter channels by',
+						},
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'moveChannel',
+				description: 'Move a channel to a different category',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (optional if bot is only in one server)',
+						},
+						channelName: {
+							type: Type.STRING,
+							description: 'Name of the channel to move',
+						},
+						newCategory: {
+							type: Type.STRING,
+							description: 'Name of the category to move the channel to',
+						},
+						channelType: {
+							type: Type.STRING,
+							description: 'Type of channel to move (text or voice)',
+							enum: ['text', 'voice'],
+						},
+					},
+					required: ['channelName', 'newCategory'],
+				},
+			},
+			{
+				name: 'renameChannel',
+				description: 'Rename a channel or category',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (optional if bot is only in one server)',
+						},
+						oldName: {
+							type: Type.STRING,
+							description: 'Current name of the channel or category',
+						},
+						newName: {
+							type: Type.STRING,
+							description: 'New name for the channel or category',
+						},
+						channelType: {
+							type: Type.STRING,
+							description: 'Type of channel to rename (text, voice, or category)',
+							enum: ['text', 'voice', 'category'],
+						},
+					},
+					required: ['oldName', 'newName'],
+				},
+			},
+			{
+				name: 'bulkCreateChannels',
+				description: 'Create multiple channels at once under a specific category',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (optional if bot is only in one server)',
+						},
+						category: {
+							type: Type.STRING,
+							description: "Category name to place all channels in (will be created if it doesn't exist)",
+						},
+						textChannels: {
+							type: Type.ARRAY,
+							description: 'Array of text channel names to create',
+							items: {
+								type: Type.STRING,
+							},
+						},
+						voiceChannels: {
+							type: Type.ARRAY,
+							description: 'Array of voice channel names to create',
+							items: {
+								type: Type.STRING,
+							},
+						},
+					},
+					required: ['category'],
+				},
+			},
+			{
+				name: 'getServerInfo',
+				description: 'Get detailed information about a Discord server',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (optional if bot is only in one server)',
+						},
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'setChannelPermissions',
+				description: 'Set permissions for a role on a specific channel (currently informational only)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (optional if bot is only in one server)',
+						},
+						channelName: {
+							type: Type.STRING,
+							description: 'Name of the channel',
+						},
+						roleName: {
+							type: Type.STRING,
+							description: 'Name of the role to modify permissions for',
+						},
+						allow: {
+							type: Type.ARRAY,
+							description: 'Array of permissions to allow',
+							items: {
+								type: Type.STRING,
+							},
+						},
+						deny: {
+							type: Type.ARRAY,
+							description: 'Array of permissions to deny',
+							items: {
+								type: Type.STRING,
+							},
+						},
+						channelType: {
+							type: Type.STRING,
+							description: 'Type of channel (text, voice, or category)',
+							enum: ['text', 'voice', 'category'],
+						},
+					},
+					required: ['channelName', 'roleName'],
+				},
+			},
+			{
 				name: 'createVoiceChannel',
 				description: 'Create a new voice channel in a Discord server',
 				parameters: {
@@ -77,7 +305,7 @@ export function createAITools() {
 						},
 						category: {
 							type: Type.STRING,
-							description: 'Category name to place the channel in (optional)',
+							description: "Category name to place the channel in (will be created if it doesn't exist)",
 						},
 						userLimit: {
 							type: Type.NUMBER,
@@ -103,7 +331,7 @@ export function createAITools() {
 						},
 						category: {
 							type: Type.STRING,
-							description: 'Category name to place the channel in (optional)',
+							description: "Category name to place the channel in (will be created if it doesn't exist)",
 						},
 						topic: {
 							type: Type.STRING,
@@ -113,15 +341,47 @@ export function createAITools() {
 					required: ['channelName'],
 				},
 			},
+			{
+				name: 'clearDiscordMessages',
+				description:
+					'Clear messages from a Discord channel. Can clear a specific number of messages or all messages in the channel.',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (optional if bot is only in one server)',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Channel name (e.g., "general") or ID',
+						},
+						messageCount: {
+							type: Type.NUMBER,
+							description: 'Number of messages to clear (max 100). If not specified, clears up to 100 messages.',
+						},
+					},
+					required: ['channel'],
+				},
+			},
+			{
+				name: 'reloadSettings',
+				description: 'Reload the bot settings from the configuration file',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {},
+					required: [],
+				},
+			},
 		],
 	};
 }
 
 export function createAIConfig(settings: BotSettings, tools: any[]) {
 	return {
-		thinkingConfig: {
-			thinkingBudget: 8192,
-		},
+		// thinkingConfig: {
+		// 	thinkingBudget: 8192,
+		// },
 		tools,
 		systemInstruction: [
 			{

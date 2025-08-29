@@ -6,9 +6,24 @@ export interface BotSettings {
 	channel?: string;
 }
 
+let cachedSettings: BotSettings | null = null;
+
 export function loadSettings(): BotSettings {
 	const settingsPath = join(process.cwd(), 'data', 'settings.json');
-	return JSON.parse(readFileSync(settingsPath, 'utf-8'));
+	cachedSettings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as BotSettings;
+	return cachedSettings;
+}
+
+export function reloadSettings(): BotSettings {
+	cachedSettings = null;
+	return loadSettings();
+}
+
+export function getCachedSettings(): BotSettings {
+	if (!cachedSettings) {
+		cachedSettings = loadSettings();
+	}
+	return cachedSettings!;
 }
 
 export const settings = loadSettings();
