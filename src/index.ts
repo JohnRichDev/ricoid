@@ -1,24 +1,25 @@
 import process from 'node:process';
-import { URL } from 'node:url';
-import { Client, GatewayIntentBits } from 'discord.js';
-import { loadEvents } from './util/loaders.js';
+import { discordClient, initializeDiscordClient } from './discord/client.js';
+import { handleMessage } from './handlers/index.js';
+import { createAIClient } from './ai/index.js';
 
-// Initialize the client
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+discordClient.on('messageCreate', async (message) => {
+	const aiClient = createAIClient(process.env.GEMINI_API_KEY!);
+	await handleMessage(message, aiClient);
+});
 
-// Load the events and commands
-const events = await loadEvents(new URL('events/', import.meta.url));
-
-// Register the event handlers
-for (const event of events) {
-	client[event.once ? 'once' : 'on'](event.name, async (...args) => {
-		try {
-			await event.execute(...args);
-		} catch (error) {
-			console.error(`Error executing event ${String(event.name)}:`, error);
+async function main() {
+	try {
+		const token = process.env.DISCORD_TOKEN;
+		if (!token) {
+			throw new Error('DISCORD_TOKEN not set');
 		}
-	});
+
+		await initializeDiscordClient(token);
+	} catch (error) {
+		console.error('Error:', error);
+		process.exit(1);
+	}
 }
 
-// Login to the client
-void client.login(process.env.DISCORD_TOKEN);
+main();
