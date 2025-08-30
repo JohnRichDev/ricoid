@@ -77,6 +77,73 @@ export interface SetChannelPermissionsData extends ServerIdentifier {
 	deny?: string[];
 	channelType?: 'text' | 'voice' | 'category';
 }
+export interface UserInfoData extends ServerIdentifier {
+	user: string;
+}
+
+export interface RoleManagementData extends ServerIdentifier {
+	user: string;
+	roleName: string;
+	action: 'add' | 'remove';
+}
+
+export interface ModerationData extends ServerIdentifier {
+	user: string;
+	action: 'kick' | 'ban' | 'timeout' | 'untimeout';
+	reason?: string;
+	duration?: number;
+}
+
+export interface ReactionData extends ChannelIdentifier {
+	messageId: string;
+	emoji: string;
+	action: 'add' | 'remove';
+}
+
+export interface PinData extends ChannelIdentifier {
+	messageId: string;
+	action: 'pin' | 'unpin';
+}
+
+export interface PollData extends ChannelIdentifier {
+	question: string;
+	options: string[];
+	duration?: number;
+}
+
+export interface ReminderData extends ServerIdentifier {
+	user?: string;
+	message: string;
+	delay: number;
+	channel?: string;
+}
+
+export interface GameData {
+	type: 'rps' | 'coinflip' | 'dice' | 'number_guess';
+	userChoice?: string;
+}
+
+export interface CalculatorData {
+	expression: string;
+}
+
+export interface WeatherData {
+	location: string;
+}
+
+export interface TranslateData {
+	text: string;
+	fromLanguage?: string;
+	toLanguage: string;
+}
+
+export interface SearchData {
+	query: string;
+	type: 'web' | 'images' | 'news';
+	limit?: number;
+}
+
+export interface ServerStatsData extends ServerIdentifier {}
 
 export interface DiscordOperations {
 	findServer(serverId?: string): Promise<Guild>;
@@ -86,4 +153,131 @@ export interface DiscordOperations {
 	createVoiceChannel(data: VoiceChannelData): Promise<string>;
 	createTextChannel(data: TextChannelData): Promise<string>;
 	clearDiscordMessages(data: ClearMessagesData): Promise<string>;
+	getUserInfo(data: UserInfoData): Promise<string>;
+	manageUserRole(data: RoleManagementData): Promise<string>;
+	moderateUser(data: ModerationData): Promise<string>;
+	manageReaction(data: ReactionData): Promise<string>;
+	managePin(data: PinData): Promise<string>;
+	createPoll(data: PollData): Promise<string>;
+	setReminder(data: ReminderData): Promise<string>;
+	playGame(data: GameData): Promise<string>;
+	calculate(data: CalculatorData): Promise<string>;
+	getWeather(data: WeatherData): Promise<string>;
+	translate(data: TranslateData): Promise<string>;
+	search(data: SearchData): Promise<string>;
+	getServerStats(data: ServerStatsData): Promise<string>;
+	getAuditLogs(data: AuditLogData): Promise<string>;
+	createInvite(data: InviteData): Promise<string>;
+	listInvites(data: ListInvitesData): Promise<string>;
+	deleteInvite(data: DeleteInviteData): Promise<string>;
+	createRole(data: CreateRoleData): Promise<string>;
+	editRole(data: EditRoleData): Promise<string>;
+	addEmoji(data: EmojiData): Promise<string>;
+	removeEmoji(data: RemoveEmojiData): Promise<string>;
+	listEmojis(data: ListEmojisData): Promise<string>;
+	unbanUser(data: UnbanUserData): Promise<string>;
+	listBans(data: ListBansData): Promise<string>;
+	updateServerSettings(data: UpdateServerSettingsData): Promise<string>;
+	createEvent(data: CreateEventData): Promise<string>;
+	cancelEvent(data: CancelEventData): Promise<string>;
+	moveVoiceUser(data: MoveVoiceUserData): Promise<string>;
+	muteVoiceUser(data: MuteVoiceUserData): Promise<string>;
+	createThread(data: CreateThreadData): Promise<string>;
+	archiveThread(data: ArchiveThreadData): Promise<string>;
+	createWebhook(data: CreateWebhookData): Promise<string>;
+	listWebhooks(data: ListWebhooksData): Promise<string>;
+	deleteWebhook(data: DeleteWebhookData): Promise<string>;
+}
+
+export interface AuditLogData extends ServerIdentifier {
+	limit?: number;
+	actionType?: string;
+}
+
+export interface InviteData extends ServerIdentifier {
+	channel: string;
+	maxUses?: number;
+	maxAge?: number;
+}
+
+export interface ListInvitesData extends ServerIdentifier {}
+
+export interface DeleteInviteData extends ServerIdentifier {
+	inviteCode: string;
+}
+
+export interface CreateRoleData extends ServerIdentifier {
+	name: string;
+	color?: string;
+	permissions?: string[];
+}
+
+export interface EditRoleData extends ServerIdentifier {
+	roleName: string;
+	newName?: string;
+	newColor?: string;
+}
+
+export interface EmojiData extends ServerIdentifier {
+	name: string;
+	imageUrl?: string;
+}
+
+export interface RemoveEmojiData extends ServerIdentifier {
+	emojiName: string;
+}
+
+export interface ListEmojisData extends ServerIdentifier {}
+
+export interface UnbanUserData extends ServerIdentifier {
+	userId: string;
+	reason?: string;
+}
+
+export interface ListBansData extends ServerIdentifier {}
+
+export interface UpdateServerSettingsData extends ServerIdentifier {
+	name?: string;
+	iconUrl?: string;
+	description?: string;
+}
+
+export interface CreateEventData extends ServerIdentifier {
+	name: string;
+	description?: string;
+	startTime: string;
+	channel?: string;
+}
+
+export interface CancelEventData extends ServerIdentifier {
+	eventId: string;
+}
+
+export interface MoveVoiceUserData extends ServerIdentifier {
+	user: string;
+	toChannel: string;
+}
+
+export interface MuteVoiceUserData extends ServerIdentifier {
+	user: string;
+	action: 'mute' | 'unmute' | 'deafen' | 'undeafen';
+}
+
+export interface CreateThreadData extends ChannelIdentifier {
+	name: string;
+	messageId?: string;
+}
+
+export interface ArchiveThreadData extends ChannelIdentifier {
+	threadId: string;
+}
+
+export interface CreateWebhookData extends ChannelIdentifier {
+	name: string;
+}
+
+export interface ListWebhooksData extends ServerIdentifier {}
+
+export interface DeleteWebhookData extends ServerIdentifier {
+	webhookId: string;
 }
