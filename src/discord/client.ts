@@ -1,7 +1,12 @@
 import { Client, GatewayIntentBits } from 'discord.js';
 
 export const discordClient = new Client({
-	intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+	intents: [
+		GatewayIntentBits.Guilds,
+		GatewayIntentBits.GuildMessages,
+		GatewayIntentBits.MessageContent,
+		GatewayIntentBits.GuildPresences,
+	],
 });
 
 export async function initializeDiscordClient(token: string): Promise<void> {

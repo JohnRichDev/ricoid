@@ -24,7 +24,7 @@ export function createAITools() {
 					properties: {
 						server: {
 							type: Type.STRING,
-							description: 'Server name or ID (optional if bot is only in one server)',
+							description: 'Server name or ID (defaults to current server)',
 						},
 						channel: {
 							type: Type.STRING,
@@ -47,7 +47,7 @@ export function createAITools() {
 					properties: {
 						server: {
 							type: Type.STRING,
-							description: 'Server name or ID (optional if bot is only in one server)',
+							description: 'Server name or ID (defaults to current server)',
 						},
 						channel: {
 							type: Type.STRING,
@@ -69,7 +69,7 @@ export function createAITools() {
 					properties: {
 						server: {
 							type: Type.STRING,
-							description: 'Server name or ID (optional if bot is only in one server)',
+							description: 'Server name or ID (defaults to current server)',
 						},
 						categoryName: {
 							type: Type.STRING,
@@ -370,6 +370,255 @@ export function createAITools() {
 				parameters: {
 					type: Type.OBJECT,
 					properties: {},
+					required: [],
+				},
+			},
+
+			{
+				name: 'getUserInfo',
+				description: 'Get detailed information about a server member',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						user: {
+							type: Type.STRING,
+							description: 'Username, nickname, or user ID to look up',
+						},
+					},
+					required: ['user'],
+				},
+			},
+			{
+				name: 'manageUserRole',
+				description: 'Add or remove a role from a user',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						user: {
+							type: Type.STRING,
+							description: 'Username, nickname, or user ID',
+						},
+						roleName: {
+							type: Type.STRING,
+							description: 'Name of the role to add or remove',
+						},
+						action: {
+							type: Type.STRING,
+							description: 'Action to perform',
+							enum: ['add', 'remove'],
+						},
+					},
+					required: ['user', 'roleName', 'action'],
+				},
+			},
+			{
+				name: 'moderateUser',
+				description: 'Perform moderation actions on a user (kick, ban, timeout)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						user: {
+							type: Type.STRING,
+							description: 'Username, nickname, or user ID',
+						},
+						action: {
+							type: Type.STRING,
+							description: 'Moderation action to perform',
+							enum: ['kick', 'ban', 'timeout', 'untimeout'],
+						},
+						reason: {
+							type: Type.STRING,
+							description: 'Reason for the moderation action',
+						},
+						duration: {
+							type: Type.NUMBER,
+							description: 'Duration in minutes (for timeout only)',
+						},
+					},
+					required: ['user', 'action'],
+				},
+			},
+
+			{
+				name: 'manageReaction',
+				description: 'Add or remove reactions to messages',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Channel name or ID',
+						},
+						messageId: {
+							type: Type.STRING,
+							description: 'ID of the message to react to',
+						},
+						emoji: {
+							type: Type.STRING,
+							description: 'Emoji to add/remove (e.g., 👍, 😀, :thumbsup:)',
+						},
+						action: {
+							type: Type.STRING,
+							description: 'Action to perform',
+							enum: ['add', 'remove'],
+						},
+					},
+					required: ['channel', 'messageId', 'emoji', 'action'],
+				},
+			},
+			{
+				name: 'managePin',
+				description: 'Pin or unpin messages in a channel',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Channel name or ID',
+						},
+						messageId: {
+							type: Type.STRING,
+							description: 'ID of the message to pin/unpin',
+						},
+						action: {
+							type: Type.STRING,
+							description: 'Action to perform',
+							enum: ['pin', 'unpin'],
+						},
+					},
+					required: ['channel', 'messageId', 'action'],
+				},
+			},
+			{
+				name: 'createPoll',
+				description: 'Create a poll for server members to vote on',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Channel to post the poll in',
+						},
+						question: {
+							type: Type.STRING,
+							description: 'Poll question',
+						},
+						options: {
+							type: Type.ARRAY,
+							description: 'Array of poll options',
+							items: {
+								type: Type.STRING,
+							},
+						},
+						duration: {
+							type: Type.NUMBER,
+							description: 'Poll duration in minutes (optional)',
+						},
+					},
+					required: ['channel', 'question', 'options'],
+				},
+			},
+
+			{
+				name: 'playGame',
+				description: 'Play simple games with the bot',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						type: {
+							type: Type.STRING,
+							description: 'Type of game to play',
+							enum: ['rps', 'coinflip', 'dice', 'number_guess'],
+						},
+						userChoice: {
+							type: Type.STRING,
+							description: "User's choice (for rock-paper-scissors, number for guessing)",
+						},
+					},
+					required: ['type'],
+				},
+			},
+
+			{
+				name: 'setReminder',
+				description: 'Set a reminder for yourself or others',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						user: {
+							type: Type.STRING,
+							description: 'User to remind (optional, defaults to message author)',
+						},
+						message: {
+							type: Type.STRING,
+							description: 'Reminder message',
+						},
+						delay: {
+							type: Type.NUMBER,
+							description: 'Delay in minutes before sending reminder',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Channel to send reminder to (optional, defaults to current channel)',
+						},
+					},
+					required: ['message', 'delay'],
+				},
+			},
+			{
+				name: 'calculate',
+				description: 'Perform mathematical calculations',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						expression: {
+							type: Type.STRING,
+							description: 'Mathematical expression to evaluate (e.g., "2 + 2 * 3", "sin(45)", "sqrt(16)")',
+						},
+					},
+					required: ['expression'],
+				},
+			},
+
+			{
+				name: 'getServerStats',
+				description: 'Get detailed statistics about the server',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+					},
 					required: [],
 				},
 			},
