@@ -1,19 +1,18 @@
 import process from 'node:process';
+import path from 'node:path';
 import { discordClient, initializeDiscordClient } from './discord/client.js';
-import { handleMessage } from './handlers/index.js';
-import { createAIClient } from './ai/index.js';
-
-discordClient.on('messageCreate', async (message) => {
-	const aiClient = createAIClient(process.env.GEMINI_API_KEY!);
-	await handleMessage(message, aiClient);
-});
+import { loadEvents, registerEvents } from './util/loaders.js';
+import { appConfig } from './config/app.js';
 
 async function main() {
 	try {
-		const token = process.env.DISCORD_TOKEN;
+		const token = process.env[appConfig.env.discordToken];
 		if (!token) {
-			throw new Error('DISCORD_TOKEN not set');
+			throw new Error(`${appConfig.env.discordToken} not set`);
 		}
+
+		const events = await loadEvents(path.join(process.cwd(), appConfig.paths.events));
+		registerEvents(discordClient, events);
 
 		await initializeDiscordClient(token);
 	} catch (error) {

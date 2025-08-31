@@ -4,6 +4,8 @@ import { readSettings } from '../../util/settingsStore.js';
 import { getAllCategories, getModule } from './settings/registry.js';
 
 export default {
+	name: 'settings',
+	category: 'utility',
 	data: {
 		name: 'settings',
 		description: "Used to modify the bot's settings.",

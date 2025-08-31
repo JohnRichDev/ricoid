@@ -2,6 +2,7 @@ import { Message } from 'discord.js';
 import { GoogleGenAI } from '@google/genai';
 import { getCachedSettings, reloadSettings } from '../config/index.js';
 import { createAIConfig, createAITools } from '../ai/index.js';
+import { aiConfig } from '../ai/config.js';
 import { discordClient } from '../discord/client.js';
 import {
 	sendDiscordMessage,
@@ -15,6 +16,7 @@ import {
 	listChannels,
 	moveChannel,
 	renameChannel,
+	setChannelTopic,
 	bulkCreateChannels,
 	getServerInfo,
 	setChannelPermissions,
@@ -42,6 +44,7 @@ import type {
 	ListChannelsData,
 	MoveChannelData,
 	RenameChannelData,
+	SetChannelTopicData,
 	BulkCreateChannelsData,
 	ServerInfoData,
 	SetChannelPermissionsData,
@@ -72,7 +75,7 @@ function normalizeChannelArgs(args: any, messageChannelId: string, messageGuildI
 		}
 
 		if ('server' in args && args.server) {
-			if (/^\d{17,19}$/.test(args.server)) {
+			if (aiConfig.discordIdPattern.test(args.server)) {
 				const isValidServer = discordClient.guilds.cache.has(args.server);
 				if (!isValidServer) {
 					delete args.server;
@@ -113,6 +116,9 @@ const functionHandlers: Record<string, (args: any) => Promise<any>> = {
 	},
 	renameChannel: async (args: RenameChannelData) => {
 		return await renameChannel(args);
+	},
+	setChannelTopic: async (args: SetChannelTopicData) => {
+		return await setChannelTopic(args);
 	},
 	bulkCreateChannels: async (args: BulkCreateChannelsData) => {
 		return await bulkCreateChannels(args);
@@ -170,14 +176,14 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 		return;
 	}
 
-	const userMessage = message.content;
+	const userMessage = message.content || '';
 	if (!userMessage.trim()) return;
 
 	try {
 		const tools = createAITools();
 		const config = createAIConfig(getCachedSettings(), [tools]);
 
-		const modelName = 'gemini-2.5-flash-lite';
+		const modelName = aiConfig.model;
 
 		const channelName =
 			message.channel && message.channel.isTextBased() && 'name' in message.channel
@@ -199,17 +205,21 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 			},
 		];
 
-		const recentMessages = conversationHistory.slice(-10);
+		const recentMessages = conversationHistory.slice(-aiConfig.maxRecentMessages);
 		if (recentMessages.length > 0) {
 			const functionResultsInHistory = recentMessages.filter(
-				(msg) => msg.role === 'user' && msg.parts[0]?.text?.startsWith('Function '),
+				(msg) => msg.role === 'user' && msg.parts[0]?.text?.startsWith(aiConfig.functionCallPrefix),
 			);
 
-			let contextMessage = 'Previous conversation context:';
+			let contextMessage = aiConfig.messages.previousContext;
 			if (functionResultsInHistory.length > 0) {
-				contextMessage += '\n\nRecent function call results (you can reference this data in your responses):';
+				contextMessage += '\n\n' + aiConfig.messages.functionResults;
 				functionResultsInHistory.forEach((result, index) => {
-					contextMessage += `\n${index + 1}. ${result.parts[0].text}`;
+					contextMessage +=
+						'\n' +
+						aiConfig.messages.functionResultItem
+							.replace('{index}', (index + 1).toString())
+							.replace('{text}', result.parts[0].text);
 				});
 			}
 
@@ -227,7 +237,7 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 
 		let responseText = '';
 		let hasFunctionCalls = false;
-		let maxRounds = 5;
+		let maxRounds = aiConfig.maxConversationRounds;
 		let round = 0;
 		let allFunctionResults: Array<{ name: string; result: any }> = [];
 
