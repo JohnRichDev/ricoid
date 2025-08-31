@@ -62,6 +62,12 @@ export interface RenameChannelData extends ServerIdentifier {
 	channelType?: 'text' | 'voice' | 'category';
 }
 
+export interface SetChannelTopicData extends ServerIdentifier {
+	channelName: string;
+	topic: string;
+	channelType?: 'text' | 'voice';
+}
+
 export interface BulkCreateChannelsData extends ServerIdentifier {
 	category: string;
 	textChannels?: string[];

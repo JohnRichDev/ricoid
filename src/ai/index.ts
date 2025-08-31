@@ -132,7 +132,8 @@ export function createAITools() {
 			},
 			{
 				name: 'listChannels',
-				description: 'List all channels in a Discord server, optionally filtered by category',
+				description:
+					'List all channels in a Discord server, optionally filtered by category. Text channels will show their topics.',
 				parameters: {
 					type: Type.OBJECT,
 					properties: {
@@ -203,8 +204,36 @@ export function createAITools() {
 				},
 			},
 			{
+				name: 'setChannelTopic',
+				description: 'Set the topic/description for a text channel',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (optional if bot is only in one server)',
+						},
+						channelName: {
+							type: Type.STRING,
+							description: 'Name of the text channel to set the topic for',
+						},
+						topic: {
+							type: Type.STRING,
+							description: 'The topic/description to set for the channel',
+						},
+						channelType: {
+							type: Type.STRING,
+							description: 'Type of channel (defaults to text)',
+							enum: ['text', 'voice'],
+						},
+					},
+					required: ['channelName', 'topic'],
+				},
+			},
+			{
 				name: 'bulkCreateChannels',
-				description: 'Create multiple channels at once under a specific category',
+				description:
+					'Create multiple channels at once under a specific category. Text channels will automatically get appropriate topics based on their names.',
 				parameters: {
 					type: Type.OBJECT,
 					properties: {
@@ -317,7 +346,8 @@ export function createAITools() {
 			},
 			{
 				name: 'createTextChannel',
-				description: 'Create a new text channel in a Discord server',
+				description:
+					'Create a new text channel in a Discord server. If no topic is provided, an appropriate topic will be automatically generated based on the channel name.',
 				parameters: {
 					type: Type.OBJECT,
 					properties: {
@@ -335,7 +365,7 @@ export function createAITools() {
 						},
 						topic: {
 							type: Type.STRING,
-							description: 'Channel topic/description (optional)',
+							description: 'Channel topic/description (optional - will be auto-generated if not provided)',
 						},
 					},
 					required: ['channelName'],
