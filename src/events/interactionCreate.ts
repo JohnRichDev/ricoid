@@ -1,14 +1,15 @@
-import { URL } from 'node:url';
+import path from 'node:path';
 import { Events } from 'discord.js';
 import { loadCommands } from '../util/loaders.js';
 import { handleSettingsAutocomplete } from './utility/settingsAutocomplete.js';
+import { appConfig } from '../config/app.js';
 import type { Event } from './index.js';
-
-const commands = await loadCommands(new URL('../commands/', import.meta.url));
 
 export default {
 	name: Events.InteractionCreate,
 	async execute(interaction) {
+		const commands = await loadCommands(path.join(process.cwd(), appConfig.paths.commands));
+
 		if (interaction.isAutocomplete()) {
 			if (interaction.commandName === 'settings') {
 				try {
@@ -24,7 +25,15 @@ export default {
 			const command = commands.get(interaction.commandName);
 
 			if (!command) {
-				throw new Error(`Command '${interaction.commandName}' not found.`);
+				console.error(`Command '${interaction.commandName}' not found.`);
+				if (!interaction.replied && !interaction.deferred) {
+					try {
+						await interaction.reply('Command not found.');
+					} catch (replyError) {
+						console.error('Error sending command not found reply:', replyError);
+					}
+				}
+				return;
 			}
 
 			try {
