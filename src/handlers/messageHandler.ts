@@ -2,7 +2,6 @@ import { Message } from 'discord.js';
 import { GoogleGenAI } from '@google/genai';
 import { getCachedSettings, reloadSettings } from '../config/index.js';
 import { createAIConfig, createAITools } from '../ai/index.js';
-import { aiConfig } from '../ai/config.js';
 import { discordClient } from '../discord/client.js';
 import {
 	sendDiscordMessage,
@@ -16,7 +15,6 @@ import {
 	listChannels,
 	moveChannel,
 	renameChannel,
-	setChannelTopic,
 	bulkCreateChannels,
 	getServerInfo,
 	setChannelPermissions,
@@ -44,7 +42,6 @@ import type {
 	ListChannelsData,
 	MoveChannelData,
 	RenameChannelData,
-	SetChannelTopicData,
 	BulkCreateChannelsData,
 	ServerInfoData,
 	SetChannelPermissionsData,
@@ -75,7 +72,7 @@ function normalizeChannelArgs(args: any, messageChannelId: string, messageGuildI
 		}
 
 		if ('server' in args && args.server) {
-			if (aiConfig.discordIdPattern.test(args.server)) {
+			if (/^\d{17,19}$/.test(args.server)) {
 				const isValidServer = discordClient.guilds.cache.has(args.server);
 				if (!isValidServer) {
 					delete args.server;
@@ -116,9 +113,6 @@ const functionHandlers: Record<string, (args: any) => Promise<any>> = {
 	},
 	renameChannel: async (args: RenameChannelData) => {
 		return await renameChannel(args);
-	},
-	setChannelTopic: async (args: SetChannelTopicData) => {
-		return await setChannelTopic(args);
 	},
 	bulkCreateChannels: async (args: BulkCreateChannelsData) => {
 		return await bulkCreateChannels(args);
@@ -168,6 +162,128 @@ const functionHandlers: Record<string, (args: any) => Promise<any>> = {
 	},
 };
 
+function getChannelName(message: Message): string {
+	return message.channel?.isTextBased() && 'name' in message.channel && message.channel.name
+		? message.channel.name
+		: message.channelId;
+}
+
+async function checkMessageAndChannelAccess(message: Message): Promise<{
+	messageExists: boolean;
+	channelExists: boolean;
+	targetChannel: any;
+}> {
+	let messageExists = true;
+	let channelExists = true;
+	let targetChannel = message.channel;
+
+	try {
+		await message.fetch();
+	} catch (error) {
+		messageExists = false;
+		console.log('Original message no longer exists, will send regular message');
+	}
+
+	try {
+		if (message.channel?.isTextBased() && 'id' in message.channel) {
+			await discordClient.channels.fetch(message.channel.id);
+		}
+	} catch (error) {
+		channelExists = false;
+		console.log('Original channel no longer exists, finding suitable channel');
+		if (message.guildId) {
+			const suitableChannel = await findSuitableChannel(message.guildId);
+			if (suitableChannel) {
+				targetChannel = suitableChannel;
+			} else {
+				console.log('No suitable channel found for response');
+				return { messageExists, channelExists, targetChannel: null };
+			}
+		}
+	}
+
+	return { messageExists, channelExists, targetChannel };
+}
+
+async function sendResponseMessage(
+	message: Message,
+	responseText: string,
+	messageExists: boolean,
+	channelExists: boolean,
+	targetChannel: any,
+): Promise<void> {
+	if (messageExists && channelExists && targetChannel === message.channel) {
+		try {
+			await message.reply(responseText);
+		} catch (error) {
+			console.log('Failed to reply to message, sending regular message instead:', error);
+			if (targetChannel?.isTextBased() && 'send' in targetChannel) {
+				await targetChannel.send(responseText);
+			}
+		}
+	} else {
+		if (targetChannel?.isTextBased() && 'send' in targetChannel) {
+			await targetChannel.send(responseText);
+		}
+	}
+}
+
+function buildConversationContext(
+	contextualMessage: string,
+	conversationHistory: ConversationMessage[],
+): Array<{
+	role: 'user' | 'model';
+	parts: Array<{ text: string }>;
+}> {
+	const aiConfig = {
+		maxRecentMessages: 10,
+		functionCallPrefix: 'Function ',
+		messages: {
+			previousContext: 'Previous conversation context:',
+			functionResults: 'Recent function call results (you can reference this data in your responses):',
+			functionResultItem: '{index}. {text}',
+		},
+	};
+
+	let conversation: Array<{
+		role: 'user' | 'model';
+		parts: Array<{ text: string }>;
+	}> = [
+		{
+			role: 'user',
+			parts: [{ text: contextualMessage }],
+		},
+	];
+
+	const recentMessages = conversationHistory.slice(-aiConfig.maxRecentMessages);
+	if (recentMessages.length > 0) {
+		const functionResultsInHistory = recentMessages.filter(
+			(msg) => msg.role === 'user' && msg.parts[0]?.text?.startsWith(aiConfig.functionCallPrefix),
+		);
+
+		let contextMessage = aiConfig.messages.previousContext;
+		if (functionResultsInHistory.length > 0) {
+			contextMessage += '\n\n' + aiConfig.messages.functionResults;
+			functionResultsInHistory.forEach((result, index) => {
+				contextMessage += `\n${index + 1}. ${result.parts[0].text}`;
+			});
+		}
+
+		conversation.unshift(
+			{
+				role: 'user',
+				parts: [{ text: contextMessage }],
+			},
+			...recentMessages.map((msg) => ({
+				role: msg.role,
+				parts: msg.parts,
+			})),
+		);
+	}
+
+	return conversation;
+}
+
 export async function handleMessage(message: Message, aiClient: GoogleGenAI): Promise<void> {
 	if (message.author.bot) return;
 
@@ -176,68 +292,25 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 		return;
 	}
 
-	const userMessage = message.content || '';
+	const userMessage = message.content;
 	if (!userMessage.trim()) return;
 
 	try {
 		const tools = createAITools();
 		const config = createAIConfig(getCachedSettings(), [tools]);
+		const modelName = 'gemini-2.5-flash-lite';
 
-		const modelName = aiConfig.model;
-
-		const channelName =
-			message.channel && message.channel.isTextBased() && 'name' in message.channel
-				? message.channel.name
-				: message.channelId;
-
+		const channelName = getChannelName(message);
 		const contextualMessage = `Current channel: ${channelName} (ID: ${message.channelId})\nUser message: ${userMessage}`;
 
 		const previousHistory = await getConversationHistory(message.channelId);
 		const conversationHistory = previousHistory?.messages || [];
 
-		let conversation: Array<{
-			role: 'user' | 'model';
-			parts: Array<{ text: string }>;
-		}> = [
-			{
-				role: 'user',
-				parts: [{ text: contextualMessage }],
-			},
-		];
-
-		const recentMessages = conversationHistory.slice(-aiConfig.maxRecentMessages);
-		if (recentMessages.length > 0) {
-			const functionResultsInHistory = recentMessages.filter(
-				(msg) => msg.role === 'user' && msg.parts[0]?.text?.startsWith(aiConfig.functionCallPrefix),
-			);
-
-			let contextMessage = aiConfig.messages.previousContext;
-			if (functionResultsInHistory.length > 0) {
-				contextMessage += '\n\n' + aiConfig.messages.functionResults;
-				functionResultsInHistory.forEach((result, index) => {
-					contextMessage +=
-						'\n' +
-						aiConfig.messages.functionResultItem
-							.replace('{index}', (index + 1).toString())
-							.replace('{text}', result.parts[0].text);
-				});
-			}
-
-			conversation.unshift(
-				{
-					role: 'user',
-					parts: [{ text: contextMessage }],
-				},
-				...recentMessages.map((msg) => ({
-					role: msg.role,
-					parts: msg.parts,
-				})),
-			);
-		}
+		const conversation = buildConversationContext(contextualMessage, conversationHistory);
 
 		let responseText = '';
 		let hasFunctionCalls = false;
-		let maxRounds = aiConfig.maxConversationRounds;
+		let maxRounds = 5;
 		let round = 0;
 		let allFunctionResults: Array<{ name: string; result: any }> = [];
 
@@ -252,7 +325,7 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 
 			let functionResults: Array<{ name: string; result: any }> = [];
 
-			if (response.functionCalls && response.functionCalls.length > 0) {
+			if (response.functionCalls?.length) {
 				hasFunctionCalls = true;
 				for (const call of response.functionCalls) {
 					try {
@@ -267,57 +340,37 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 							console.log('Function call result:', result);
 						} else {
 							console.warn(`Unknown function: ${call.name}`);
-							functionResults.push({
-								name: call.name,
-								result: { error: `Unknown function: ${call.name}` },
-							});
-							allFunctionResults.push({
-								name: call.name,
-								result: { error: `Unknown function: ${call.name}` },
-							});
+							const errorResult = { error: `Unknown function: ${call.name}` };
+							functionResults.push({ name: call.name, result: errorResult });
+							allFunctionResults.push({ name: call.name, result: errorResult });
 						}
 					} catch (error) {
 						console.error('Call error:', error);
 						if (call.name) {
-							functionResults.push({
-								name: call.name,
-								result: {
-									error: error instanceof Error ? error.message : 'Unknown error',
-								},
-							});
-							allFunctionResults.push({
-								name: call.name,
-								result: {
-									error: error instanceof Error ? error.message : 'Unknown error',
-								},
-							});
+							const errorResult = {
+								error: error instanceof Error ? error.message : 'Unknown error',
+							};
+							functionResults.push({ name: call.name, result: errorResult });
+							allFunctionResults.push({ name: call.name, result: errorResult });
 						}
 					}
 				}
 
 				conversation.push({
 					role: 'model',
-					parts: [
-						{
-							text: 'I executed the requested functions.',
-						},
-					],
+					parts: [{ text: 'I executed the requested functions.' }],
 				});
 
 				for (const funcResult of functionResults) {
 					conversation.push({
 						role: 'user',
-						parts: [
-							{
-								text: `Function ${funcResult.name} returned: ${JSON.stringify(funcResult.result)}`,
-							},
-						],
+						parts: [{ text: `Function ${funcResult.name} returned: ${JSON.stringify(funcResult.result)}` }],
 					});
 				}
 			} else {
 				if (response.candidates) {
 					for (const candidate of response.candidates) {
-						if (candidate.content && candidate.content.parts) {
+						if (candidate.content?.parts) {
 							for (const part of candidate.content.parts) {
 								if (part.text && typeof part.text === 'string') {
 									responseText += part.text;
@@ -351,20 +404,11 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 			timestamp: Date.now(),
 		};
 
-		const functionResultEntries: ConversationMessage[] = [];
-		if (allFunctionResults.length > 0) {
-			for (const funcResult of allFunctionResults) {
-				functionResultEntries.push({
-					role: 'user',
-					parts: [
-						{
-							text: `Function ${funcResult.name} returned: ${JSON.stringify(funcResult.result)}`,
-						},
-					],
-					timestamp: Date.now(),
-				});
-			}
-		}
+		const functionResultEntries: ConversationMessage[] = allFunctionResults.map((funcResult) => ({
+			role: 'user' as const,
+			parts: [{ text: `Function ${funcResult.name} returned: ${JSON.stringify(funcResult.result)}` }],
+			timestamp: Date.now(),
+		}));
 
 		await addMessageToConversation(message.channelId, userMessageEntry);
 
@@ -374,146 +418,25 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 
 		await addMessageToConversation(message.channelId, botResponseEntry);
 
+		const { messageExists, channelExists, targetChannel } = await checkMessageAndChannelAccess(message);
+
+		if (!targetChannel) return;
+
 		if (responseText.trim()) {
-			let messageExists = true;
-			let channelExists = true;
-			let targetChannel = message.channel;
-
-			try {
-				await message.fetch();
-			} catch (error) {
-				messageExists = false;
-				console.log('Original message no longer exists, will send regular message');
-			}
-
-			try {
-				if (message.channel && message.channel.isTextBased() && 'id' in message.channel) {
-					await discordClient.channels.fetch(message.channel.id);
-				}
-			} catch (error) {
-				channelExists = false;
-				console.log('Original channel no longer exists, finding suitable channel');
-				if (message.guildId) {
-					const suitableChannel = await findSuitableChannel(message.guildId);
-					if (suitableChannel) {
-						targetChannel = suitableChannel;
-					} else {
-						console.log('No suitable channel found for response');
-						return;
-					}
-				}
-			}
-
-			if (messageExists && channelExists && targetChannel === message.channel) {
-				try {
-					await message.reply(responseText);
-				} catch (error) {
-					console.log('Failed to reply to message, sending regular message instead:', error);
-					if (targetChannel && targetChannel.isTextBased() && 'send' in targetChannel) {
-						await targetChannel.send(responseText);
-					}
-				}
-			} else {
-				if (targetChannel && targetChannel.isTextBased() && 'send' in targetChannel) {
-					await targetChannel.send(responseText);
-				}
-			}
+			await sendResponseMessage(message, responseText, messageExists, channelExists, targetChannel);
 		} else {
 			console.log('No response text found, sending debug info');
-			let messageExists = true;
-			let channelExists = true;
-			let targetChannel = message.channel;
-
-			try {
-				await message.fetch();
-			} catch (error) {
-				messageExists = false;
-				console.log('Original message no longer exists, will send regular message');
-			}
-
-			try {
-				if (message.channel && message.channel.isTextBased() && 'id' in message.channel) {
-					await discordClient.channels.fetch(message.channel.id);
-				}
-			} catch (error) {
-				channelExists = false;
-				console.log('Original channel no longer exists, finding suitable channel');
-				if (message.guildId) {
-					const suitableChannel = await findSuitableChannel(message.guildId);
-					if (suitableChannel) {
-						targetChannel = suitableChannel;
-					} else {
-						console.log('No suitable channel found for response');
-						return;
-					}
-				}
-			}
-
-			if (messageExists && channelExists && targetChannel === message.channel) {
-				try {
-					await message.reply(
-						"I received your message but couldn't generate a response. Please check the logs for details.",
-					);
-				} catch (error) {
-					console.log('Failed to reply to message, sending regular message instead:', error);
-					if (targetChannel && targetChannel.isTextBased() && 'send' in targetChannel) {
-						await targetChannel.send(
-							"I received your message but couldn't generate a response. Please check the logs for details.",
-						);
-					}
-				}
-			} else {
-				if (targetChannel && targetChannel.isTextBased() && 'send' in targetChannel) {
-					await targetChannel.send(
-						"I received your message but couldn't generate a response. Please check the logs for details.",
-					);
-				}
-			}
+			const debugMessage =
+				"I received your message but couldn't generate a response. Please check the logs for details.";
+			await sendResponseMessage(message, debugMessage, messageExists, channelExists, targetChannel);
 		}
 	} catch (error) {
 		console.error('Error:', error);
-		let messageExists = true;
-		let channelExists = true;
-		let targetChannel = message.channel;
+		const { messageExists, channelExists, targetChannel } = await checkMessageAndChannelAccess(message);
 
-		try {
-			await message.fetch();
-		} catch (fetchError) {
-			messageExists = false;
-			console.log('Original message no longer exists during error handling');
-		}
-
-		try {
-			if (message.channel && message.channel.isTextBased() && 'id' in message.channel) {
-				await discordClient.channels.fetch(message.channel.id);
-			}
-		} catch (error) {
-			channelExists = false;
-			console.log('Original channel no longer exists during error handling, finding suitable channel');
-			if (message.guildId) {
-				const suitableChannel = await findSuitableChannel(message.guildId);
-				if (suitableChannel) {
-					targetChannel = suitableChannel;
-				} else {
-					console.log('No suitable channel found for error response');
-					return;
-				}
-			}
-		}
-
-		if (messageExists && channelExists && targetChannel === message.channel) {
-			try {
-				await message.reply('Sorry, I encountered an error processing your message.');
-			} catch (replyError) {
-				console.log('Failed to reply to message during error handling:', replyError);
-				if (targetChannel && targetChannel.isTextBased() && 'send' in targetChannel) {
-					await targetChannel.send('Sorry, I encountered an error processing your message.');
-				}
-			}
-		} else {
-			if (targetChannel && targetChannel.isTextBased() && 'send' in targetChannel) {
-				await targetChannel.send('Sorry, I encountered an error processing your message.');
-			}
+		if (targetChannel) {
+			const errorMessage = 'Sorry, I encountered an error processing your message.';
+			await sendResponseMessage(message, errorMessage, messageExists, channelExists, targetChannel);
 		}
 	}
 }
