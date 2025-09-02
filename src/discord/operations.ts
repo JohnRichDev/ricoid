@@ -12,6 +12,7 @@ import type {
 	ListChannelsData,
 	MoveChannelData,
 	RenameChannelData,
+	SetChannelTopicData,
 	BulkCreateChannelsData,
 	ServerInfoData,
 	SetChannelPermissionsData,
@@ -327,14 +328,42 @@ export async function createTextChannel({ server, channelName, category, topic }
 			return `Text channel "${existingChannel.name}" already exists in ${guild.name}. ID: ${existingChannel.id}`;
 		}
 
+		let finalTopic = topic;
+		if (!finalTopic) {
+			const name = channelName.toLowerCase().replace(/[^a-z0-9]/g, '');
+			if (name.includes('general') || name.includes('chat')) {
+				finalTopic = 'General discussion and casual conversation';
+			} else if (name.includes('announcement') || name.includes('news')) {
+				finalTopic = 'Important announcements and updates';
+			} else if (name.includes('help') || name.includes('support')) {
+				finalTopic = 'Get help and support from the community';
+			} else if (name.includes('question') || name.includes('qna')) {
+				finalTopic = 'Ask questions and get answers from the community';
+			} else if (name.includes('coding') || name.includes('programming')) {
+				finalTopic = 'Discuss coding, programming, and development topics';
+			} else if (name.includes('project') || name.includes('showcase')) {
+				finalTopic = 'Show off your projects and get feedback';
+			} else if (name.includes('witty') || name.includes('banter') || name.includes('joke')) {
+				finalTopic = 'Lighthearted jokes and casual conversation';
+			} else if (name.includes('gaming') || name.includes('game')) {
+				finalTopic = 'Gaming discussions and community';
+			} else if (name.includes('music') || name.includes('song')) {
+				finalTopic = 'Music sharing and discussions';
+			} else if (name.includes('art') || name.includes('design')) {
+				finalTopic = 'Art, design, and creative works';
+			} else {
+				finalTopic = `Discussion about ${channelName}`;
+			}
+		}
+
 		const textChannel = await guild.channels.create({
 			name: channelName,
 			type: 0,
 			parent: parent?.id,
-			topic: topic,
+			topic: finalTopic,
 		});
 
-		return `Text channel "${textChannel.name}" created in ${guild.name}${parent ? ` under category "${parent.name}"` : ''}. ID: ${textChannel.id}`;
+		return `Text channel "${textChannel.name}" created in ${guild.name}${parent ? ` under category "${parent.name}"` : ''} with topic: "${finalTopic}". ID: ${textChannel.id}`;
 	} catch (error) {
 		throw new Error(`Failed to create text channel: ${error}`);
 	}
@@ -389,7 +418,12 @@ export async function listChannels({ server, category }: ListChannelsData): Prom
 			channels = guild.channels.cache;
 		}
 
-		const textChannels = channels.filter((c) => c.type === 0).map((c) => `#${c.name}`);
+		const textChannels = channels
+			.filter((c) => c.type === 0)
+			.map((c) => {
+				const topic = (c as TextChannel).topic ? ` - ${(c as TextChannel).topic}` : '';
+				return `#${c.name}${topic}`;
+			});
 		const voiceChannels = channels.filter((c) => c.type === 2).map((c) => `🔊${c.name}`);
 		const categories = channels.filter((c) => c.type === 4).map((c) => `📁${c.name}`);
 
@@ -478,6 +512,43 @@ export async function renameChannel({ server, oldName, newName, channelType }: R
 	}
 }
 
+export async function setChannelTopic({
+	server,
+	channelName,
+	topic,
+	channelType,
+}: SetChannelTopicData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		let channelTypeNum: number | undefined;
+		if (channelType === 'text') channelTypeNum = 0;
+		else if (channelType === 'voice') channelTypeNum = 2;
+
+		const channel = guild.channels.cache.find(
+			(channel) =>
+				channel.name.toLowerCase() === channelName.toLowerCase() &&
+				(channelTypeNum === undefined || channel.type === channelTypeNum),
+		);
+
+		if (!channel) {
+			return `Channel "${channelName}" not found in ${guild.name}.`;
+		}
+
+		if (channel.type === 0) {
+			await (channel as TextChannel).setTopic(topic);
+		} else if (channel.type === 2) {
+			return `Voice channels do not support topics. Topic: "${topic}" not set for "${channel.name}".`;
+		} else {
+			return `Cannot set topic for channel type: ${channel.type}. Only text channels support topics.`;
+		}
+
+		return `Topic set for channel "${channel.name}" in ${guild.name}: "${topic}"`;
+	} catch (error) {
+		throw new Error(`Failed to set channel topic: ${error}`);
+	}
+}
+
 export async function bulkCreateChannels({
 	server,
 	category,
@@ -509,12 +580,39 @@ export async function bulkCreateChannels({
 			if (existingChannel) {
 				results.push(`Text channel "${channelName}" already exists`);
 			} else {
+				let topic = '';
+				const name = channelName.toLowerCase().replace(/[^a-z0-9]/g, '');
+				if (name.includes('general') || name.includes('chat')) {
+					topic = 'General discussion and casual conversation';
+				} else if (name.includes('announcement') || name.includes('news')) {
+					topic = 'Important announcements and updates';
+				} else if (name.includes('help') || name.includes('support')) {
+					topic = 'Get help and support from the community';
+				} else if (name.includes('question') || name.includes('qna')) {
+					topic = 'Ask questions and get answers from the community';
+				} else if (name.includes('coding') || name.includes('programming')) {
+					topic = 'Discuss coding, programming, and development topics';
+				} else if (name.includes('project') || name.includes('showcase')) {
+					topic = 'Show off your projects and get feedback';
+				} else if (name.includes('witty') || name.includes('banter') || name.includes('joke')) {
+					topic = 'Lighthearted jokes and casual conversation';
+				} else if (name.includes('gaming') || name.includes('game')) {
+					topic = 'Gaming discussions and community';
+				} else if (name.includes('music') || name.includes('song')) {
+					topic = 'Music sharing and discussions';
+				} else if (name.includes('art') || name.includes('design')) {
+					topic = 'Art, design, and creative works';
+				} else {
+					topic = `Discussion about ${channelName}`;
+				}
+
 				await guild.channels.create({
 					name: channelName,
 					type: 0,
 					parent: targetCategory.id,
+					topic: topic,
 				});
-				results.push(`Created text channel "${channelName}"`);
+				results.push(`Created text channel "${channelName}" with topic: "${topic}"`);
 				createdCount++;
 			}
 		}
