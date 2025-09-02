@@ -1,6 +1,6 @@
 import type { SettingsCategoryModule, SettingsAction } from './types.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
-import { resolveTarget } from '../../../util/resolveTarget.js';
+import { resolveTarget, type ResolvedTarget } from '../../../util/resolveTarget.js';
 import { writeSettings } from '../../../util/settingsStore.js';
 
 const ACTIONS: SettingsAction[] = [
@@ -10,6 +10,75 @@ const ACTIONS: SettingsAction[] = [
 ];
 
 const ALLOWED_ACTIONS = ['view', 'add', 'remove'];
+
+function getDisplayName(resolved: ResolvedTarget, target: string): string {
+	if (resolved.kind === 'member') {
+		return resolved.member.user.tag;
+	}
+
+	if (resolved.kind === 'role') {
+		return `@${resolved.role.name}`;
+	}
+
+	return target;
+}
+
+function initializeAccessList(settings: any): string[] {
+	return settings.access ?? [];
+}
+
+function createResult(settings: any, reply: string): { settings: any; reply: string } {
+	return { settings, reply };
+}
+
+async function handleAddAction(
+	interaction: ChatInputCommandInteraction,
+	target: string,
+	updatedSettings: any,
+): Promise<{ settings: any; reply: string }> {
+	const resolved = await resolveTarget(interaction.guild, target);
+	const display = getDisplayName(resolved, target);
+
+	if (updatedSettings.access.includes(target)) {
+		return createResult(updatedSettings, `${display} is already in the access list.`);
+	}
+
+	updatedSettings.access.push(target);
+	await writeSettings(updatedSettings);
+	return createResult(updatedSettings, `Added ${display} to access list.`);
+}
+
+async function handleRemoveAction(
+	interaction: ChatInputCommandInteraction,
+	target: string,
+	updatedSettings: any,
+): Promise<{ settings: any; reply: string }> {
+	const resolved = await resolveTarget(interaction.guild, target);
+	const display = getDisplayName(resolved, target);
+
+	const targetIndex = updatedSettings.access.indexOf(target);
+	if (targetIndex === -1) {
+		return createResult(updatedSettings, `${display} was not found in the access list.`);
+	}
+
+	updatedSettings.access.splice(targetIndex, 1);
+	await writeSettings(updatedSettings);
+	return createResult(updatedSettings, `Removed ${display} from access list.`);
+}
+
+function handleViewAction(updatedSettings: any): { settings: any; reply: string } {
+	const accessList = updatedSettings.access ?? [];
+	const reply = accessList.length === 0 ? 'Access list is empty.' : `Access list:\n${accessList.join('\n')}`;
+
+	return createResult(updatedSettings, reply);
+}
+
+function validateTargetRequirement(action: string, target: string | null): string | null {
+	if (['add', 'remove'].includes(action) && !target) {
+		return 'Target is required for access permission changes.';
+	}
+	return null;
+}
 
 export const accessModule: SettingsCategoryModule = {
 	name: 'Access Permissions',
@@ -27,76 +96,26 @@ export const accessModule: SettingsCategoryModule = {
 		settings: any,
 	): Promise<{ settings: any; reply: string }> {
 		if (!this.isActionAllowed(action)) {
-			return {
-				settings,
-				reply: 'Access permissions only support **add**, **remove**, and **view** actions.',
-			};
+			return createResult(settings, 'Access permissions only support **add**, **remove**, and **view** actions.');
 		}
 
-		if (['add', 'remove'].includes(action) && !target) {
-			return {
-				settings,
-				reply: 'Target is required for access permission changes.',
-			};
+		const targetValidationError = validateTargetRequirement(action, target);
+		if (targetValidationError) {
+			return createResult(settings, targetValidationError);
 		}
 
 		const updatedSettings = { ...settings };
-		updatedSettings.access = updatedSettings.access ?? [];
+		updatedSettings.access = initializeAccessList(updatedSettings);
 
-		if (action === 'add') {
-			const resolved = await resolveTarget(interaction.guild, target!);
-			const display =
-				resolved.kind === 'member'
-					? `${resolved.member.user.tag}`
-					: resolved.kind === 'role'
-						? `@${resolved.role.name}`
-						: target;
-
-			if (!updatedSettings.access.includes(target!)) {
-				updatedSettings.access.push(target!);
-				await writeSettings(updatedSettings);
-				return {
-					settings: updatedSettings,
-					reply: `Added ${display} to access list.`,
-				};
-			} else {
-				return {
-					settings,
-					reply: `${display} is already in the access list.`,
-				};
-			}
-		} else if (action === 'remove') {
-			const resolved = await resolveTarget(interaction.guild, target!);
-			const display =
-				resolved.kind === 'member'
-					? `${resolved.member.user.tag}`
-					: resolved.kind === 'role'
-						? `@${resolved.role.name}`
-						: target;
-
-			const idx = updatedSettings.access.indexOf(target!);
-			if (idx !== -1) {
-				updatedSettings.access.splice(idx, 1);
-				await writeSettings(updatedSettings);
-				return {
-					settings: updatedSettings,
-					reply: `Removed ${display} from access list.`,
-				};
-			} else {
-				return {
-					settings,
-					reply: `${display} was not found in the access list.`,
-				};
-			}
-		} else if (action === 'view') {
-			const list = updatedSettings.access ?? [];
-			const reply = list.length === 0 ? 'Access list is empty.' : `Access list:\n${list.join('\n')}`;
-			return {
-				settings,
-				reply,
-			};
+		switch (action) {
+			case 'add':
+				return handleAddAction(interaction, target!, updatedSettings);
+			case 'remove':
+				return handleRemoveAction(interaction, target!, updatedSettings);
+			case 'view':
+				return handleViewAction(updatedSettings);
+			default:
+				return createResult(settings, 'Unknown action.');
 		}
-
-		return { settings, reply: 'Unknown action.' };
 	},
 };

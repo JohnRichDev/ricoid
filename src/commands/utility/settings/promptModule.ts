@@ -10,6 +10,31 @@ const ACTIONS: SettingsAction[] = [
 
 const ALLOWED_ACTIONS = ['view', 'set', 'reset'];
 
+function createResult(settings: any, reply: string): { settings: any; reply: string } {
+	return { settings, reply };
+}
+
+async function handleSetAction(target: string | null, updatedSettings: any): Promise<{ settings: any; reply: string }> {
+	if (!target) {
+		return createResult(updatedSettings, 'Value is required when setting the prompt.');
+	}
+
+	updatedSettings.prompt = target;
+	await writeSettings(updatedSettings);
+	return createResult(updatedSettings, `Bot prompt set to: "${target}"`);
+}
+
+async function handleResetAction(updatedSettings: any): Promise<{ settings: any; reply: string }> {
+	delete updatedSettings.prompt;
+	await writeSettings(updatedSettings);
+	return createResult(updatedSettings, 'Bot prompt reset to default.');
+}
+
+function handleViewAction(settings: any): { settings: any; reply: string } {
+	const promptValue = settings.prompt ?? '*not set*';
+	return createResult(settings, `Current prompt: ${promptValue}`);
+}
+
 export const promptModule: SettingsCategoryModule = {
 	name: 'Bot Prompt',
 	value: 'prompt',
@@ -26,41 +51,20 @@ export const promptModule: SettingsCategoryModule = {
 		settings: any,
 	): Promise<{ settings: any; reply: string }> {
 		if (!this.isActionAllowed(action)) {
-			return {
-				settings,
-				reply: 'Bot prompt only supports **set**, **reset**, and **view** actions.',
-			};
+			return createResult(settings, 'Bot prompt only supports **set**, **reset**, and **view** actions.');
 		}
 
 		const updatedSettings = { ...settings };
 
-		if (action === 'set') {
-			if (!target) {
-				return {
-					settings,
-					reply: 'Value is required when setting the prompt.',
-				};
-			}
-			updatedSettings.prompt = target;
-			await writeSettings(updatedSettings);
-			return {
-				settings: updatedSettings,
-				reply: `Bot prompt set to: "${target}"`,
-			};
-		} else if (action === 'reset') {
-			delete updatedSettings.prompt;
-			await writeSettings(updatedSettings);
-			return {
-				settings: updatedSettings,
-				reply: 'Bot prompt reset to default.',
-			};
-		} else if (action === 'view') {
-			return {
-				settings,
-				reply: `Current prompt: ${settings.prompt ?? '*not set*'}`,
-			};
+		switch (action) {
+			case 'set':
+				return handleSetAction(target, updatedSettings);
+			case 'reset':
+				return handleResetAction(updatedSettings);
+			case 'view':
+				return handleViewAction(settings);
+			default:
+				return createResult(settings, 'Unknown action.');
 		}
-
-		return { settings, reply: 'Unknown action.' };
 	},
 };
