@@ -12,7 +12,6 @@ import type {
 	ListChannelsData,
 	MoveChannelData,
 	RenameChannelData,
-	SetChannelTopicData,
 	BulkCreateChannelsData,
 	ServerInfoData,
 	SetChannelPermissionsData,
@@ -303,67 +302,54 @@ export async function createVoiceChannel({
 	}
 }
 
+function findOrCreateCategory(guild: Guild, categoryName: string) {
+	const existingCategory = guild.channels.cache.find(
+		(channel) => channel.name.toLowerCase() === categoryName.toLowerCase() && channel.type === 4,
+	);
+
+	if (existingCategory) {
+		return existingCategory;
+	}
+
+	return guild.channels.create({
+		name: categoryName,
+		type: 4,
+	});
+}
+
+function checkExistingTextChannel(guild: Guild, channelName: string) {
+	return guild.channels.cache.find(
+		(channel) => channel.name.toLowerCase() === channelName.toLowerCase() && channel.type === 0,
+	);
+}
+
+function formatChannelCreatedMessage(textChannel: any, guild: Guild, parent?: any) {
+	const parentMessage = parent ? ` under category "${parent.name}"` : '';
+	return `Text channel "${textChannel.name}" created in ${guild.name}${parentMessage}. ID: ${textChannel.id}`;
+}
+
 export async function createTextChannel({ server, channelName, category, topic }: TextChannelData): Promise<string> {
 	const guild = await findServer(server);
 
 	try {
 		let parent;
 		if (category) {
-			parent = guild.channels.cache.find(
-				(channel) => channel.name.toLowerCase() === category.toLowerCase() && channel.type === 4,
-			);
-			if (!parent) {
-				parent = await guild.channels.create({
-					name: category,
-					type: 4,
-				});
-			}
+			parent = await findOrCreateCategory(guild, category);
 		}
 
-		const existingChannel = guild.channels.cache.find(
-			(channel) => channel.name.toLowerCase() === channelName.toLowerCase() && channel.type === 0,
-		);
-
+		const existingChannel = checkExistingTextChannel(guild, channelName);
 		if (existingChannel) {
 			return `Text channel "${existingChannel.name}" already exists in ${guild.name}. ID: ${existingChannel.id}`;
-		}
-
-		let finalTopic = topic;
-		if (!finalTopic) {
-			const name = channelName.toLowerCase().replace(/[^a-z0-9]/g, '');
-			if (name.includes('general') || name.includes('chat')) {
-				finalTopic = 'General discussion and casual conversation';
-			} else if (name.includes('announcement') || name.includes('news')) {
-				finalTopic = 'Important announcements and updates';
-			} else if (name.includes('help') || name.includes('support')) {
-				finalTopic = 'Get help and support from the community';
-			} else if (name.includes('question') || name.includes('qna')) {
-				finalTopic = 'Ask questions and get answers from the community';
-			} else if (name.includes('coding') || name.includes('programming')) {
-				finalTopic = 'Discuss coding, programming, and development topics';
-			} else if (name.includes('project') || name.includes('showcase')) {
-				finalTopic = 'Show off your projects and get feedback';
-			} else if (name.includes('witty') || name.includes('banter') || name.includes('joke')) {
-				finalTopic = 'Lighthearted jokes and casual conversation';
-			} else if (name.includes('gaming') || name.includes('game')) {
-				finalTopic = 'Gaming discussions and community';
-			} else if (name.includes('music') || name.includes('song')) {
-				finalTopic = 'Music sharing and discussions';
-			} else if (name.includes('art') || name.includes('design')) {
-				finalTopic = 'Art, design, and creative works';
-			} else {
-				finalTopic = `Discussion about ${channelName}`;
-			}
 		}
 
 		const textChannel = await guild.channels.create({
 			name: channelName,
 			type: 0,
 			parent: parent?.id,
-			topic: finalTopic,
+			topic: topic,
 		});
 
-		return `Text channel "${textChannel.name}" created in ${guild.name}${parent ? ` under category "${parent.name}"` : ''} with topic: "${finalTopic}". ID: ${textChannel.id}`;
+		return formatChannelCreatedMessage(textChannel, guild, parent);
 	} catch (error) {
 		throw new Error(`Failed to create text channel: ${error}`);
 	}
@@ -418,12 +404,7 @@ export async function listChannels({ server, category }: ListChannelsData): Prom
 			channels = guild.channels.cache;
 		}
 
-		const textChannels = channels
-			.filter((c) => c.type === 0)
-			.map((c) => {
-				const topic = (c as TextChannel).topic ? ` - ${(c as TextChannel).topic}` : '';
-				return `#${c.name}${topic}`;
-			});
+		const textChannels = channels.filter((c) => c.type === 0).map((c) => `#${c.name}`);
 		const voiceChannels = channels.filter((c) => c.type === 2).map((c) => `🔊${c.name}`);
 		const categories = channels.filter((c) => c.type === 4).map((c) => `📁${c.name}`);
 
@@ -512,43 +493,6 @@ export async function renameChannel({ server, oldName, newName, channelType }: R
 	}
 }
 
-export async function setChannelTopic({
-	server,
-	channelName,
-	topic,
-	channelType,
-}: SetChannelTopicData): Promise<string> {
-	const guild = await findServer(server);
-
-	try {
-		let channelTypeNum: number | undefined;
-		if (channelType === 'text') channelTypeNum = 0;
-		else if (channelType === 'voice') channelTypeNum = 2;
-
-		const channel = guild.channels.cache.find(
-			(channel) =>
-				channel.name.toLowerCase() === channelName.toLowerCase() &&
-				(channelTypeNum === undefined || channel.type === channelTypeNum),
-		);
-
-		if (!channel) {
-			return `Channel "${channelName}" not found in ${guild.name}.`;
-		}
-
-		if (channel.type === 0) {
-			await (channel as TextChannel).setTopic(topic);
-		} else if (channel.type === 2) {
-			return `Voice channels do not support topics. Topic: "${topic}" not set for "${channel.name}".`;
-		} else {
-			return `Cannot set topic for channel type: ${channel.type}. Only text channels support topics.`;
-		}
-
-		return `Topic set for channel "${channel.name}" in ${guild.name}: "${topic}"`;
-	} catch (error) {
-		throw new Error(`Failed to set channel topic: ${error}`);
-	}
-}
-
 export async function bulkCreateChannels({
 	server,
 	category,
@@ -580,39 +524,12 @@ export async function bulkCreateChannels({
 			if (existingChannel) {
 				results.push(`Text channel "${channelName}" already exists`);
 			} else {
-				let topic = '';
-				const name = channelName.toLowerCase().replace(/[^a-z0-9]/g, '');
-				if (name.includes('general') || name.includes('chat')) {
-					topic = 'General discussion and casual conversation';
-				} else if (name.includes('announcement') || name.includes('news')) {
-					topic = 'Important announcements and updates';
-				} else if (name.includes('help') || name.includes('support')) {
-					topic = 'Get help and support from the community';
-				} else if (name.includes('question') || name.includes('qna')) {
-					topic = 'Ask questions and get answers from the community';
-				} else if (name.includes('coding') || name.includes('programming')) {
-					topic = 'Discuss coding, programming, and development topics';
-				} else if (name.includes('project') || name.includes('showcase')) {
-					topic = 'Show off your projects and get feedback';
-				} else if (name.includes('witty') || name.includes('banter') || name.includes('joke')) {
-					topic = 'Lighthearted jokes and casual conversation';
-				} else if (name.includes('gaming') || name.includes('game')) {
-					topic = 'Gaming discussions and community';
-				} else if (name.includes('music') || name.includes('song')) {
-					topic = 'Music sharing and discussions';
-				} else if (name.includes('art') || name.includes('design')) {
-					topic = 'Art, design, and creative works';
-				} else {
-					topic = `Discussion about ${channelName}`;
-				}
-
 				await guild.channels.create({
 					name: channelName,
 					type: 0,
 					parent: targetCategory.id,
-					topic: topic,
 				});
-				results.push(`Created text channel "${channelName}" with topic: "${topic}"`);
+				results.push(`Created text channel "${channelName}"`);
 				createdCount++;
 			}
 		}
@@ -643,6 +560,49 @@ export async function bulkCreateChannels({
 	}
 }
 
+function getChannelCounts(channels: any) {
+	return {
+		text: channels.filter((c: any) => c.type === 0).size,
+		voice: channels.filter((c: any) => c.type === 2).size,
+		categories: channels.filter((c: any) => c.type === 4).size,
+		total: channels.size,
+	};
+}
+
+function getMemberCounts(members: any) {
+	return {
+		total: members.guild?.memberCount || members.size,
+		online: members.filter((m: any) => m.presence?.status === 'online').size,
+	};
+}
+
+function formatServerBasicInfo(guild: Guild) {
+	return [
+		`**Basic Info:**`,
+		`Owner: ${guild.ownerId}`,
+		`Created: ${guild.createdAt.toDateString()}`,
+		`Region: ${guild.preferredLocale || 'Not specified'}`,
+	];
+}
+
+function formatMemberInfo(memberCounts: any) {
+	return [`**Members:**`, `Total: ${memberCounts.total}`, `Online: ${memberCounts.online}`];
+}
+
+function formatChannelInfo(channelCounts: any) {
+	return [
+		`**Channels:**`,
+		`Categories: ${channelCounts.categories}`,
+		`Text Channels: ${channelCounts.text}`,
+		`Voice Channels: ${channelCounts.voice}`,
+		`Total Channels: ${channelCounts.total}`,
+	];
+}
+
+function formatRoleInfo(roles: any) {
+	return [`**Roles:**`, `Total Roles: ${roles.size}`, `Roles: ${roles.map((r: any) => r.name).join(', ')}`];
+}
+
 export async function getServerInfo({ server }: ServerInfoData): Promise<string> {
 	const guild = await findServer(server);
 
@@ -651,31 +611,19 @@ export async function getServerInfo({ server }: ServerInfoData): Promise<string>
 		const members = guild.members.cache;
 		const roles = guild.roles.cache;
 
-		const textChannels = channels.filter((c) => c.type === 0).size;
-		const voiceChannels = channels.filter((c) => c.type === 2).size;
-		const categories = channels.filter((c) => c.type === 4).size;
+		const channelCounts = getChannelCounts(channels);
+		const memberCounts = getMemberCounts(members);
 
 		const info = [
 			`**Server Information for ${guild.name}**`,
 			``,
-			`**Basic Info:**`,
-			`Owner: ${guild.ownerId}`,
-			`Created: ${guild.createdAt.toDateString()}`,
-			`Region: ${guild.preferredLocale || 'Not specified'}`,
+			...formatServerBasicInfo(guild),
 			``,
-			`**Members:**`,
-			`Total: ${guild.memberCount}`,
-			`Online: ${members.filter((m) => m.presence?.status === 'online').size}`,
+			...formatMemberInfo(memberCounts),
 			``,
-			`**Channels:**`,
-			`Categories: ${categories}`,
-			`Text Channels: ${textChannels}`,
-			`Voice Channels: ${voiceChannels}`,
-			`Total Channels: ${channels.size}`,
+			...formatChannelInfo(channelCounts),
 			``,
-			`**Roles:**`,
-			`Total Roles: ${roles.size}`,
-			`Roles: ${roles.map((r) => r.name).join(', ')}`,
+			...formatRoleInfo(roles),
 		].join('\n');
 
 		return info;
@@ -726,81 +674,98 @@ export async function setChannelPermissions({
 	}
 }
 
+async function fetchMemberById(guild: Guild, userId: string) {
+	try {
+		return await guild.members.fetch({ user: userId, withPresences: true });
+	} catch {
+		try {
+			return await guild.members.fetch(userId);
+		} catch {
+			return null;
+		}
+	}
+}
+
+function findMemberByName(guild: Guild, user: string) {
+	return guild.members.cache.find(
+		(m) =>
+			m.user.username.toLowerCase() === user.toLowerCase() ||
+			m.displayName.toLowerCase() === user.toLowerCase() ||
+			m.user.tag.toLowerCase() === user.toLowerCase(),
+	);
+}
+
+function getPresenceStatus(member: any): string {
+	if (!member.presence) return 'Offline';
+
+	const statusMap: Record<string, string> = {
+		online: 'Online',
+		idle: 'Idle',
+		dnd: 'Do Not Disturb',
+		invisible: 'Offline',
+		offline: 'Offline',
+	};
+
+	return statusMap[member.presence.status] || 'Offline';
+}
+
+function formatUserBasicInfo(member: any) {
+	return [
+		`**Basic Info:**`,
+		`Username: ${member.user.username}`,
+		`Display Name: ${member.displayName}`,
+		`User ID: ${member.user.id}`,
+		`Bot: ${member.user.bot ? 'Yes' : 'No'}`,
+	];
+}
+
+function formatUserServerInfo(member: any) {
+	const roles = member.roles.cache.map((r: any) => r.name).join(', ');
+	const joinDate = member.joinedAt?.toDateString() || 'Unknown';
+	const accountCreated = member.user.createdAt.toDateString();
+
+	return [
+		`**Server Info:**`,
+		`Joined Server: ${joinDate}`,
+		`Account Created: ${accountCreated}`,
+		`Roles: ${roles || 'None'}`,
+		`Highest Role: ${member.roles.highest.name}`,
+	];
+}
+
+function formatUserStatus(member: any) {
+	const status = getPresenceStatus(member);
+	const activities = member.presence?.activities?.map((a: any) => a.name).join(', ') || 'None';
+
+	return [`**Status:**`, `Online Status: ${status}`, `Activities: ${activities}`];
+}
+
 export async function getUserInfo({ server, user }: UserInfoData): Promise<string> {
 	const guild = await findServer(server);
 
 	try {
-		let member;
+		let member = null;
 
 		if (/^\d{17,19}$/.test(user)) {
-			try {
-				member = await guild.members.fetch({ user: user, withPresences: true });
-			} catch {
-				try {
-					member = await guild.members.fetch(user);
-				} catch {
-					member = null;
-				}
-			}
+			member = await fetchMemberById(guild, user);
 		}
 
 		if (!member) {
-			member = guild.members.cache.find(
-				(m) =>
-					m.user.username.toLowerCase() === user.toLowerCase() ||
-					m.displayName.toLowerCase() === user.toLowerCase() ||
-					m.user.tag.toLowerCase() === user.toLowerCase(),
-			);
+			member = findMemberByName(guild, user);
 		}
 
 		if (!member) {
 			return `User "${user}" not found in ${guild.name}.`;
 		}
 
-		const roles = member.roles.cache.map((r) => r.name).join(', ');
-		const joinDate = member.joinedAt?.toDateString() || 'Unknown';
-		const accountCreated = member.user.createdAt.toDateString();
-
-		let status = 'Offline';
-		if (member.presence) {
-			switch (member.presence.status) {
-				case 'online':
-					status = 'Online';
-					break;
-				case 'idle':
-					status = 'Idle';
-					break;
-				case 'dnd':
-					status = 'Do Not Disturb';
-					break;
-				case 'invisible':
-				case 'offline':
-				default:
-					status = 'Offline';
-					break;
-			}
-		}
-
-		const activities = member.presence?.activities?.map((a) => a.name).join(', ') || 'None';
-
 		const info = [
 			`**User Information for ${member.user.tag}**`,
 			``,
-			`**Basic Info:**`,
-			`Username: ${member.user.username}`,
-			`Display Name: ${member.displayName}`,
-			`User ID: ${member.user.id}`,
-			`Bot: ${member.user.bot ? 'Yes' : 'No'}`,
+			...formatUserBasicInfo(member),
 			``,
-			`**Server Info:**`,
-			`Joined Server: ${joinDate}`,
-			`Account Created: ${accountCreated}`,
-			`Roles: ${roles || 'None'}`,
-			`Highest Role: ${member.roles.highest.name}`,
+			...formatUserServerInfo(member),
 			``,
-			`**Status:**`,
-			`Online Status: ${status}`,
-			`Activities: ${activities}`,
+			...formatUserStatus(member),
 		].join('\n');
 
 		return info;
@@ -809,47 +774,58 @@ export async function getUserInfo({ server, user }: UserInfoData): Promise<strin
 	}
 }
 
+async function findMember(guild: Guild, user: string) {
+	if (/^\d{17,19}$/.test(user)) {
+		const member = await guild.members.fetch(user).catch(() => null);
+		if (member) return member;
+	}
+
+	return guild.members.cache.find(
+		(m) =>
+			m.user.username.toLowerCase() === user.toLowerCase() ||
+			m.displayName.toLowerCase() === user.toLowerCase() ||
+			m.user.tag.toLowerCase() === user.toLowerCase(),
+	);
+}
+
+function findRole(guild: Guild, roleName: string) {
+	return guild.roles.cache.find((r) => r.name.toLowerCase() === roleName.toLowerCase());
+}
+
+async function handleAddRole(member: any, role: any, guild: Guild) {
+	if (member.roles.cache.has(role.id)) {
+		return `User ${member.user.tag} already has the role "${role.name}".`;
+	}
+	await member.roles.add(role);
+	return `Added role "${role.name}" to ${member.user.tag} in ${guild.name}.`;
+}
+
+async function handleRemoveRole(member: any, role: any, guild: Guild) {
+	if (!member.roles.cache.has(role.id)) {
+		return `User ${member.user.tag} does not have the role "${role.name}".`;
+	}
+	await member.roles.remove(role);
+	return `Removed role "${role.name}" from ${member.user.tag} in ${guild.name}.`;
+}
+
 export async function manageUserRole({ server, user, roleName, action }: RoleManagementData): Promise<string> {
 	const guild = await findServer(server);
 
 	try {
-		let member;
-
-		if (/^\d{17,19}$/.test(user)) {
-			member = await guild.members.fetch(user).catch(() => null);
-		}
-
-		if (!member) {
-			member = guild.members.cache.find(
-				(m) =>
-					m.user.username.toLowerCase() === user.toLowerCase() ||
-					m.displayName.toLowerCase() === user.toLowerCase() ||
-					m.user.tag.toLowerCase() === user.toLowerCase(),
-			);
-		}
-
+		const member = await findMember(guild, user);
 		if (!member) {
 			return `User "${user}" not found in ${guild.name}.`;
 		}
 
-		const role = guild.roles.cache.find((r) => r.name.toLowerCase() === roleName.toLowerCase());
-
+		const role = findRole(guild, roleName);
 		if (!role) {
 			return `Role "${roleName}" not found in ${guild.name}.`;
 		}
 
 		if (action === 'add') {
-			if (member.roles.cache.has(role.id)) {
-				return `User ${member.user.tag} already has the role "${role.name}".`;
-			}
-			await member.roles.add(role);
-			return `Added role "${role.name}" to ${member.user.tag} in ${guild.name}.`;
+			return await handleAddRole(member, role, guild);
 		} else if (action === 'remove') {
-			if (!member.roles.cache.has(role.id)) {
-				return `User ${member.user.tag} does not have the role "${role.name}".`;
-			}
-			await member.roles.remove(role);
-			return `Removed role "${role.name}" from ${member.user.tag} in ${guild.name}.`;
+			return await handleRemoveRole(member, role, guild);
 		}
 
 		return `Invalid action specified. Use 'add' or 'remove'.`;
@@ -1060,72 +1036,90 @@ export async function playGame({ type, userChoice }: GameData): Promise<string> 
 	}
 }
 
+function formatReminderSetupMessage(message: string, reminderTime: Date, user?: string, channel?: string) {
+	let result = `Reminder set!\n`;
+	result += `Message: "${message}"\n`;
+	result += `Time: ${reminderTime.toLocaleString()}\n`;
+
+	if (user) result += `For user: ${user}\n`;
+	if (channel) result += `In channel: ${channel}\n`;
+	result += `\nReminder will be sent at the specified time.`;
+
+	return result;
+}
+
+async function findReminderTarget(server: string | undefined, channel: string | undefined) {
+	const guild = server ? await findServer(server) : null;
+
+	if (channel && guild) {
+		return await findTextChannel(channel, server);
+	} else if (guild) {
+		return await findSuitableChannel(guild.id);
+	}
+
+	return null;
+}
+
+async function findReminderUser(server: string | undefined, user: string | undefined) {
+	if (!user || !server) return null;
+
+	const guild = await findServer(server);
+
+	if (/^\d{17,19}$/.test(user)) {
+		try {
+			return await guild.members.fetch(user);
+		} catch {
+			return null;
+		}
+	}
+
+	return guild.members.cache.find(
+		(m) =>
+			m.user.username.toLowerCase() === user.toLowerCase() ||
+			m.displayName.toLowerCase() === user.toLowerCase() ||
+			m.user.tag.toLowerCase() === user.toLowerCase(),
+	);
+}
+
+async function sendReminderMessage(message: string, targetChannel: TextChannel | null, targetUser: any) {
+	let reminderMessage = `⏰ **Reminder:** ${message}`;
+
+	if (targetUser) {
+		reminderMessage = `<@${targetUser.id}> ${reminderMessage}`;
+	}
+
+	if (targetChannel) {
+		await targetChannel.send(reminderMessage);
+	} else if (targetUser) {
+		await targetUser.send(reminderMessage);
+	} else {
+		console.error('Could not find a channel or user to send reminder to');
+	}
+}
+
+async function executeReminder(
+	server: string | undefined,
+	user: string | undefined,
+	message: string,
+	channel: string | undefined,
+) {
+	try {
+		const targetChannel = await findReminderTarget(server, channel);
+		const targetUser = await findReminderUser(server, user);
+		await sendReminderMessage(message, targetChannel, targetUser);
+	} catch (error) {
+		console.error('Error sending reminder:', error);
+	}
+}
+
 export async function setReminder({ server, user, message, delay, channel }: ReminderData): Promise<string> {
 	try {
 		const delayMs = delay * 60 * 1000;
 		const reminderTime = new Date(Date.now() + delayMs);
 
-		let result = `Reminder set!\n`;
-		result += `Message: "${message}"\n`;
-		result += `Time: ${reminderTime.toLocaleString()}\n`;
+		setTimeout(() => executeReminder(server, user, message, channel), delayMs);
 
-		if (user) {
-			result += `For user: ${user}\n`;
-		}
-
-		if (channel) {
-			result += `In channel: ${channel}\n`;
-		}
-
-		setTimeout(async () => {
-			try {
-				let targetChannel: TextChannel | null = null;
-				let targetUser = null;
-
-				const guild = server ? await findServer(server) : null;
-
-				if (channel && guild) {
-					targetChannel = await findTextChannel(channel, server);
-				} else if (guild) {
-					targetChannel = await findSuitableChannel(guild.id);
-				}
-
-				if (user && guild) {
-					if (/^\d{17,19}$/.test(user)) {
-						try {
-							targetUser = await guild.members.fetch(user);
-						} catch {}
-					} else {
-						targetUser = guild.members.cache.find(
-							(m) =>
-								m.user.username.toLowerCase() === user.toLowerCase() ||
-								m.displayName.toLowerCase() === user.toLowerCase() ||
-								m.user.tag.toLowerCase() === user.toLowerCase(),
-						);
-					}
-				}
-
-				let reminderMessage = `⏰ **Reminder:** ${message}`;
-
-				if (targetUser) {
-					reminderMessage = `<@${targetUser.id}> ${reminderMessage}`;
-				}
-
-				if (targetChannel) {
-					await targetChannel.send(reminderMessage);
-				} else if (targetUser) {
-					await targetUser.send(reminderMessage);
-				} else {
-					console.error('Could not find a channel or user to send reminder to');
-				}
-			} catch (error) {
-				console.error('Error sending reminder:', error);
-			}
-		}, delayMs);
-
-		result += `\nReminder will be sent at the specified time.`;
-
-		return result;
+		return formatReminderSetupMessage(message, reminderTime, user, channel);
 	} catch (error) {
 		throw new Error(`Failed to set reminder: ${error}`);
 	}
@@ -1147,6 +1141,74 @@ export async function calculate({ expression }: CalculatorData): Promise<string>
 	}
 }
 
+function calculateMemberStats(members: any, guild: Guild) {
+	const onlineMembers = members.filter((m: any) => m.presence?.status === 'online').size;
+	const offlineMembers = members.filter(
+		(m: any) => !m.presence || m.presence.status === 'offline' || m.presence.status === 'invisible',
+	).size;
+	const dndMembers = members.filter((m: any) => m.presence?.status === 'dnd').size;
+	const idleMembers = members.filter((m: any) => m.presence?.status === 'idle').size;
+	const bots = members.filter((m: any) => m.user.bot).size;
+
+	return {
+		total: guild.memberCount,
+		online: onlineMembers,
+		offline: offlineMembers,
+		dnd: dndMembers,
+		idle: idleMembers,
+		bots,
+		onlinePercent: Math.round((onlineMembers / guild.memberCount) * 100),
+	};
+}
+
+function calculateChannelStats(channels: any) {
+	return {
+		text: channels.filter((c: any) => c.type === 0).size,
+		voice: channels.filter((c: any) => c.type === 2).size,
+		categories: channels.filter((c: any) => c.type === 4).size,
+		total: channels.size,
+	};
+}
+
+function formatMemberStatistics(memberStats: any) {
+	return [
+		`**Member Statistics:**`,
+		`Total Members: ${memberStats.total}`,
+		`Online: ${memberStats.online} (${memberStats.onlinePercent}%)`,
+		`Offline: ${memberStats.offline}`,
+		`Do Not Disturb: ${memberStats.dnd}`,
+		`Idle: ${memberStats.idle}`,
+		`Bots: ${memberStats.bots}`,
+	];
+}
+
+function formatChannelStatistics(channelStats: any) {
+	return [
+		`**Channel Statistics:**`,
+		`Categories: ${channelStats.categories}`,
+		`Text Channels: ${channelStats.text}`,
+		`Voice Channels: ${channelStats.voice}`,
+		`Total Channels: ${channelStats.total}`,
+	];
+}
+
+function formatOtherStats(roles: any, emojis: any, guild: Guild) {
+	const recentMessages = Math.floor(Math.random() * 1000) + 500;
+	const activeUsers = Math.floor(guild.memberCount * 0.3);
+
+	return [
+		`**Other Stats:**`,
+		`Roles: ${roles.size}`,
+		`Custom Emojis: ${emojis.size}`,
+		`Server Boosts: ${guild.premiumSubscriptionCount || 0}`,
+		`Boost Level: ${guild.premiumTier}`,
+		``,
+		`**Activity (Estimated):**`,
+		`Messages Today: ~${recentMessages}`,
+		`Active Users: ~${activeUsers}`,
+	];
+}
+
 export async function getServerStats({ server }: ServerStatsData): Promise<string> {
 	const guild = await findServer(server);
 
@@ -1156,45 +1218,17 @@ export async function getServerStats({ server }: ServerStatsData): Promise<strin
 		const roles = guild.roles.cache;
 		const emojis = guild.emojis.cache;
 
-		const onlineMembers = members.filter((m) => m.presence?.status === 'online').size;
-		const offlineMembers = members.filter(
-			(m) => !m.presence || m.presence.status === 'offline' || m.presence.status === 'invisible',
-		).size;
-		const dndMembers = members.filter((m) => m.presence?.status === 'dnd').size;
-		const idleMembers = members.filter((m) => m.presence?.status === 'idle').size;
-
-		const textChannels = channels.filter((c) => c.type === 0).size;
-		const voiceChannels = channels.filter((c) => c.type === 2).size;
-		const categories = channels.filter((c) => c.type === 4).size;
-
-		const recentMessages = Math.floor(Math.random() * 1000) + 500;
+		const memberStats = calculateMemberStats(members, guild);
+		const channelStats = calculateChannelStats(channels);
 
 		const stats = [
 			`**Server Statistics for ${guild.name}**`,
 			``,
-			`**Member Statistics:**`,
-			`Total Members: ${guild.memberCount}`,
-			`Online: ${onlineMembers} (${Math.round((onlineMembers / guild.memberCount) * 100)}%)`,
-			`Offline: ${offlineMembers}`,
-			`Do Not Disturb: ${dndMembers}`,
-			`Idle: ${idleMembers}`,
-			`Bots: ${members.filter((m) => m.user.bot).size}`,
+			...formatMemberStatistics(memberStats),
 			``,
-			`**Channel Statistics:**`,
-			`Categories: ${categories}`,
-			`Text Channels: ${textChannels}`,
-			`Voice Channels: ${voiceChannels}`,
-			`Total Channels: ${channels.size}`,
+			...formatChannelStatistics(channelStats),
 			``,
-			`**Other Stats:**`,
-			`Roles: ${roles.size}`,
-			`Custom Emojis: ${emojis.size}`,
-			`Server Boosts: ${guild.premiumSubscriptionCount || 0}`,
-			`Boost Level: ${guild.premiumTier}`,
-			``,
-			`**Activity (Estimated):**`,
-			`Messages Today: ~${recentMessages}`,
-			`Active Users: ~${Math.floor(guild.memberCount * 0.3)}`,
+			...formatOtherStats(roles, emojis, guild),
 		].join('\n');
 
 		return stats;
