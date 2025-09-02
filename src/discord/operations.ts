@@ -49,6 +49,19 @@ import type {
 	DeleteWebhookData,
 } from '../types/index.js';
 
+function getChannelTypeDisplayName(channelType: number): string {
+	switch (channelType) {
+		case 0:
+			return 'text';
+		case 2:
+			return 'voice';
+		case 4:
+			return 'category';
+		default:
+			return 'unknown';
+	}
+}
+
 export async function findServer(serverId?: string): Promise<Guild> {
 	if (!serverId) {
 		if (discordClient.guilds.cache.size === 1) {
@@ -232,9 +245,8 @@ export async function deleteAllChannels({
 
 			try {
 				await channel.delete();
-				results.push(
-					`Deleted ${channel.type === 0 ? 'text' : channel.type === 2 ? 'voice' : channel.type === 4 ? 'category' : 'unknown'} channel "${channel.name}"`,
-				);
+				const channelTypeName = getChannelTypeDisplayName(channel.type);
+				results.push(`Deleted ${channelTypeName} channel "${channel.name}"`);
 				deletedCount++;
 			} catch (error) {
 				results.push(`Failed to delete "${channel.name}": ${error}`);
@@ -704,7 +716,11 @@ export async function setChannelPermissions({
 			return `Role "${roleName}" not found in ${guild.name}.`;
 		}
 
-		return `Found channel "${channel.name}" and role "${role.name}". Permission management requires manual configuration in Discord for security reasons. Would change:\n${allow.length > 0 ? `Allow: ${allow.join(', ')}\n` : ''}${deny.length > 0 ? `Deny: ${deny.join(', ')}` : 'No changes specified'}`;
+		const allowMessage = allow.length > 0 ? `Allow: ${allow.join(', ')}\n` : '';
+		const denyMessage = deny.length > 0 ? `Deny: ${deny.join(', ')}` : 'No changes specified';
+		const changesMessage = allowMessage + denyMessage;
+
+		return `Found channel "${channel.name}" and role "${role.name}". Permission management requires manual configuration in Discord for security reasons. Would change:\n${changesMessage}`;
 	} catch (error) {
 		throw new Error(`Failed to set channel permissions: ${error}`);
 	}
