@@ -58,28 +58,45 @@ import type {
 } from '../types/index.js';
 import { getConversationHistory, addMessageToConversation, type ConversationMessage } from '../util/settingsStore.js';
 
-function normalizeChannelArgs(args: any, messageChannelId: string, messageGuildId: string): any {
-	if (args && typeof args === 'object') {
-		if (!args.server) {
-			args.server = messageGuildId;
-		}
+function setDefaultServer(args: any, messageGuildId: string): void {
+	if (!args.server) {
+		args.server = messageGuildId;
+	}
+}
 
-		if ('channel' in args) {
-			const channel = args.channel;
-			if (!channel || channel.toLowerCase() === 'this channel' || channel.toLowerCase() === 'current channel') {
-				args.channel = messageChannelId;
-			}
-		}
+function normalizeChannelReference(args: any, messageChannelId: string): void {
+	if ('channel' in args) {
+		const channel = args.channel;
+		const isCurrentChannelRef =
+			!channel || channel.toLowerCase() === 'this channel' || channel.toLowerCase() === 'current channel';
 
-		if ('server' in args && args.server) {
-			if (/^\d{17,19}$/.test(args.server)) {
-				const isValidServer = discordClient.guilds.cache.has(args.server);
-				if (!isValidServer) {
-					delete args.server;
-				}
+		if (isCurrentChannelRef) {
+			args.channel = messageChannelId;
+		}
+	}
+}
+
+function validateAndCleanServer(args: any): void {
+	if ('server' in args && args.server) {
+		const isSnowflakeId = /^\d{17,19}$/.test(args.server);
+		if (isSnowflakeId) {
+			const isValidServer = discordClient.guilds.cache.has(args.server);
+			if (!isValidServer) {
+				delete args.server;
 			}
 		}
 	}
+}
+
+function normalizeChannelArgs(args: any, messageChannelId: string, messageGuildId: string): any {
+	if (!args || typeof args !== 'object') {
+		return args;
+	}
+
+	setDefaultServer(args, messageGuildId);
+	normalizeChannelReference(args, messageChannelId);
+	validateAndCleanServer(args);
+
 	return args;
 }
 
@@ -284,16 +301,192 @@ function buildConversationContext(
 	return conversation;
 }
 
-export async function handleMessage(message: Message, aiClient: GoogleGenAI): Promise<void> {
-	if (message.author.bot) return;
+async function processFunctionCall(
+	call: any,
+	message: Message,
+	functionResults: Array<{ name: string; result: any }>,
+	allFunctionResults: Array<{ name: string; result: any }>,
+): Promise<void> {
+	try {
+		if (!call.args || !call.name) return;
+
+		const handler = functionHandlers[call.name];
+		if (handler) {
+			const normalizedArgs = normalizeChannelArgs(call.args, message.channelId, message.guildId || '');
+			const result = await handler(normalizedArgs);
+			functionResults.push({ name: call.name, result });
+			allFunctionResults.push({ name: call.name, result });
+			console.log('Function call result:', result);
+		} else {
+			console.warn(`Unknown function: ${call.name}`);
+			const errorResult = { error: `Unknown function: ${call.name}` };
+			functionResults.push({ name: call.name, result: errorResult });
+			allFunctionResults.push({ name: call.name, result: errorResult });
+		}
+	} catch (error) {
+		console.error('Call error:', error);
+		if (call.name) {
+			const errorResult = {
+				error: error instanceof Error ? error.message : 'Unknown error',
+			};
+			functionResults.push({ name: call.name, result: errorResult });
+			allFunctionResults.push({ name: call.name, result: errorResult });
+		}
+	}
+}
+
+async function processFunctionCalls(
+	response: any,
+	message: Message,
+	conversation: any[],
+	allFunctionResults: Array<{ name: string; result: any }>,
+): Promise<{ hasFunctionCalls: boolean; functionResults: Array<{ name: string; result: any }> }> {
+	if (!response.functionCalls?.length) {
+		return { hasFunctionCalls: false, functionResults: [] };
+	}
+
+	const functionResults: Array<{ name: string; result: any }> = [];
+
+	for (const call of response.functionCalls) {
+		await processFunctionCall(call, message, functionResults, allFunctionResults);
+	}
+
+	conversation.push({
+		role: 'model',
+		parts: [{ text: 'I executed the requested functions.' }],
+	});
+
+	for (const funcResult of functionResults) {
+		conversation.push({
+			role: 'user',
+			parts: [{ text: `Function ${funcResult.name} returned: ${JSON.stringify(funcResult.result)}` }],
+		});
+	}
+
+	return { hasFunctionCalls: true, functionResults };
+}
+
+function extractResponseText(response: any): string {
+	let responseText = '';
+	if (response.candidates) {
+		for (const candidate of response.candidates) {
+			if (candidate.content?.parts) {
+				for (const part of candidate.content.parts) {
+					if (part.text && typeof part.text === 'string') {
+						responseText += part.text;
+					}
+				}
+			}
+		}
+	}
+	return responseText;
+}
+
+async function processAIResponse(
+	aiClient: GoogleGenAI,
+	modelName: string,
+	config: any,
+	conversation: any[],
+	message: Message,
+): Promise<{ responseText: string; allFunctionResults: Array<{ name: string; result: any }> }> {
+	let responseText = '';
+	const maxRounds = 5;
+	let round = 0;
+	const allFunctionResults: Array<{ name: string; result: any }> = [];
+
+	while (round < maxRounds) {
+		round++;
+
+		const response = await aiClient.models.generateContent({
+			model: modelName,
+			config,
+			contents: conversation,
+		});
+
+		const { hasFunctionCalls: hasCurrentFunctionCalls } = await processFunctionCalls(
+			response,
+			message,
+			conversation,
+			allFunctionResults,
+		);
+
+		if (!hasCurrentFunctionCalls) {
+			responseText = extractResponseText(response);
+			break;
+		}
+	}
+
+	if (round >= maxRounds) {
+		console.warn('Reached maximum function call rounds');
+		responseText = 'I performed multiple operations but reached the maximum limit. Please check the logs for details.';
+	}
+
+	return { responseText, allFunctionResults };
+}
+
+async function saveConversationHistory(
+	channelId: string,
+	contextualMessage: string,
+	responseText: string,
+	allFunctionResults: Array<{ name: string; result: any }>,
+): Promise<void> {
+	const userMessageEntry: ConversationMessage = {
+		role: 'user',
+		parts: [{ text: contextualMessage }],
+		timestamp: Date.now(),
+	};
+
+	const botResponseEntry: ConversationMessage = {
+		role: 'model',
+		parts: [{ text: responseText }],
+		timestamp: Date.now(),
+	};
+
+	const functionResultEntries: ConversationMessage[] = allFunctionResults.map((funcResult) => ({
+		role: 'user' as const,
+		parts: [{ text: `Function ${funcResult.name} returned: ${JSON.stringify(funcResult.result)}` }],
+		timestamp: Date.now(),
+	}));
+
+	await addMessageToConversation(channelId, userMessageEntry);
+
+	for (const funcEntry of functionResultEntries) {
+		await addMessageToConversation(channelId, funcEntry);
+	}
+
+	await addMessageToConversation(channelId, botResponseEntry);
+}
+
+async function sendFinalResponse(message: Message, responseText: string): Promise<void> {
+	const { messageExists, channelExists, targetChannel } = await checkMessageAndChannelAccess(message);
+
+	if (!targetChannel) return;
+
+	if (responseText.trim()) {
+		await sendResponseMessage(message, responseText, messageExists, channelExists, targetChannel);
+	} else {
+		console.log('No response text found, sending debug info');
+		const debugMessage = "I received your message but couldn't generate a response. Please check the logs for details.";
+		await sendResponseMessage(message, debugMessage, messageExists, channelExists, targetChannel);
+	}
+}
+
+function shouldProcessMessage(message: Message): boolean {
+	if (message.author.bot) return false;
 
 	const channelId = getCachedSettings().channel;
 	if (channelId && message.channelId !== channelId) {
-		return;
+		return false;
 	}
 
 	const userMessage = message.content;
-	if (!userMessage.trim()) return;
+	return userMessage.trim().length > 0;
+}
+
+export async function handleMessage(message: Message, aiClient: GoogleGenAI): Promise<void> {
+	if (!shouldProcessMessage(message)) return;
+
+	const userMessage = message.content;
 
 	try {
 		const tools = createAITools();
@@ -308,128 +501,18 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 
 		const conversation = buildConversationContext(contextualMessage, conversationHistory);
 
-		let responseText = '';
-		let hasFunctionCalls = false;
-		let maxRounds = 5;
-		let round = 0;
-		let allFunctionResults: Array<{ name: string; result: any }> = [];
-
-		while (round < maxRounds) {
-			round++;
-
-			const response = await aiClient.models.generateContent({
-				model: modelName,
-				config,
-				contents: conversation,
-			});
-
-			let functionResults: Array<{ name: string; result: any }> = [];
-
-			if (response.functionCalls?.length) {
-				hasFunctionCalls = true;
-				for (const call of response.functionCalls) {
-					try {
-						if (!call.args || !call.name) continue;
-
-						const handler = functionHandlers[call.name];
-						if (handler) {
-							const normalizedArgs = normalizeChannelArgs(call.args, message.channelId, message.guildId || '');
-							const result = await handler(normalizedArgs);
-							functionResults.push({ name: call.name, result });
-							allFunctionResults.push({ name: call.name, result });
-							console.log('Function call result:', result);
-						} else {
-							console.warn(`Unknown function: ${call.name}`);
-							const errorResult = { error: `Unknown function: ${call.name}` };
-							functionResults.push({ name: call.name, result: errorResult });
-							allFunctionResults.push({ name: call.name, result: errorResult });
-						}
-					} catch (error) {
-						console.error('Call error:', error);
-						if (call.name) {
-							const errorResult = {
-								error: error instanceof Error ? error.message : 'Unknown error',
-							};
-							functionResults.push({ name: call.name, result: errorResult });
-							allFunctionResults.push({ name: call.name, result: errorResult });
-						}
-					}
-				}
-
-				conversation.push({
-					role: 'model',
-					parts: [{ text: 'I executed the requested functions.' }],
-				});
-
-				for (const funcResult of functionResults) {
-					conversation.push({
-						role: 'user',
-						parts: [{ text: `Function ${funcResult.name} returned: ${JSON.stringify(funcResult.result)}` }],
-					});
-				}
-			} else {
-				if (response.candidates) {
-					for (const candidate of response.candidates) {
-						if (candidate.content?.parts) {
-							for (const part of candidate.content.parts) {
-								if (part.text && typeof part.text === 'string') {
-									responseText += part.text;
-								}
-							}
-						}
-					}
-				}
-				break;
-			}
-		}
-
-		if (round >= maxRounds) {
-			console.warn('Reached maximum function call rounds');
-			responseText =
-				'I performed multiple operations but reached the maximum limit. Please check the logs for details.';
-		}
+		const { responseText, allFunctionResults } = await processAIResponse(
+			aiClient,
+			modelName,
+			config,
+			conversation,
+			message,
+		);
 
 		console.log('Final response text:', responseText);
-		console.log('Has function calls:', hasFunctionCalls);
 
-		const userMessageEntry: ConversationMessage = {
-			role: 'user',
-			parts: [{ text: contextualMessage }],
-			timestamp: Date.now(),
-		};
-
-		const botResponseEntry: ConversationMessage = {
-			role: 'model',
-			parts: [{ text: responseText }],
-			timestamp: Date.now(),
-		};
-
-		const functionResultEntries: ConversationMessage[] = allFunctionResults.map((funcResult) => ({
-			role: 'user' as const,
-			parts: [{ text: `Function ${funcResult.name} returned: ${JSON.stringify(funcResult.result)}` }],
-			timestamp: Date.now(),
-		}));
-
-		await addMessageToConversation(message.channelId, userMessageEntry);
-
-		for (const funcEntry of functionResultEntries) {
-			await addMessageToConversation(message.channelId, funcEntry);
-		}
-
-		await addMessageToConversation(message.channelId, botResponseEntry);
-
-		const { messageExists, channelExists, targetChannel } = await checkMessageAndChannelAccess(message);
-
-		if (!targetChannel) return;
-
-		if (responseText.trim()) {
-			await sendResponseMessage(message, responseText, messageExists, channelExists, targetChannel);
-		} else {
-			console.log('No response text found, sending debug info');
-			const debugMessage =
-				"I received your message but couldn't generate a response. Please check the logs for details.";
-			await sendResponseMessage(message, debugMessage, messageExists, channelExists, targetChannel);
-		}
+		await saveConversationHistory(message.channelId, contextualMessage, responseText, allFunctionResults);
+		await sendFinalResponse(message, responseText);
 	} catch (error) {
 		console.error('Error:', error);
 		const { messageExists, channelExists, targetChannel } = await checkMessageAndChannelAccess(message);
