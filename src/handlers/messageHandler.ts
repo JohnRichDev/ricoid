@@ -253,50 +253,55 @@ function buildConversationContext(
 	parts: Array<{ text: string }>;
 }> {
 	const aiConfig = {
-		maxRecentMessages: 10,
+		maxRecentMessages: 15,
 		functionCallPrefix: 'Function ',
 		messages: {
-			previousContext: 'Previous conversation context:',
+			previousContext: 'Previous conversation context (maintain awareness of this throughout the conversation):',
 			functionResults: 'Recent function call results (you can reference this data in your responses):',
-			functionResultItem: '{index}. {text}',
 		},
 	};
+
+	const recentMessages = conversationHistory.slice(-aiConfig.maxRecentMessages);
 
 	let conversation: Array<{
 		role: 'user' | 'model';
 		parts: Array<{ text: string }>;
-	}> = [
-		{
-			role: 'user',
-			parts: [{ text: contextualMessage }],
-		},
-	];
+	}> = [];
 
-	const recentMessages = conversationHistory.slice(-aiConfig.maxRecentMessages);
 	if (recentMessages.length > 0) {
-		const functionResultsInHistory = recentMessages.filter(
-			(msg) => msg.role === 'user' && msg.parts[0]?.text?.startsWith(aiConfig.functionCallPrefix),
-		);
+		conversation.push({
+			role: 'user',
+			parts: [{ text: aiConfig.messages.previousContext }],
+		});
 
-		let contextMessage = aiConfig.messages.previousContext;
-		if (functionResultsInHistory.length > 0) {
-			contextMessage += '\n\n' + aiConfig.messages.functionResults;
-			functionResultsInHistory.forEach((result, index) => {
-				contextMessage += `\n${index + 1}. ${result.parts[0].text}`;
-			});
-		}
-
-		conversation.unshift(
-			{
-				role: 'user',
-				parts: [{ text: contextMessage }],
-			},
+		conversation.push(
 			...recentMessages.map((msg) => ({
 				role: msg.role,
 				parts: msg.parts,
 			})),
 		);
+
+		const functionResultsInHistory = recentMessages.filter(
+			(msg) => msg.role === 'user' && msg.parts[0]?.text?.startsWith(aiConfig.functionCallPrefix),
+		);
+
+		if (functionResultsInHistory.length > 0) {
+			let functionResultsMessage = aiConfig.messages.functionResults;
+			functionResultsInHistory.forEach((result, index) => {
+				functionResultsMessage += `\n${index + 1}. ${result.parts[0].text}`;
+			});
+
+			conversation.push({
+				role: 'user',
+				parts: [{ text: functionResultsMessage }],
+			});
+		}
 	}
+
+	conversation.push({
+		role: 'user',
+		parts: [{ text: contextualMessage }],
+	});
 
 	return conversation;
 }
@@ -316,7 +321,9 @@ async function processFunctionCall(
 			const result = await handler(normalizedArgs);
 			functionResults.push({ name: call.name, result });
 			allFunctionResults.push({ name: call.name, result });
-			console.log('Function call result:', result);
+			console.log(`Function call result for ${call.name}:`, result);
+
+			await new Promise((resolve) => setTimeout(resolve, 500));
 		} else {
 			console.warn(`Unknown function: ${call.name}`);
 			const errorResult = { error: `Unknown function: ${call.name}` };
@@ -324,7 +331,7 @@ async function processFunctionCall(
 			allFunctionResults.push({ name: call.name, result: errorResult });
 		}
 	} catch (error) {
-		console.error('Call error:', error);
+		console.error(`Call error for ${call.name}:`, error);
 		if (call.name) {
 			const errorResult = {
 				error: error instanceof Error ? error.message : 'Unknown error',
