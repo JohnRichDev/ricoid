@@ -438,18 +438,41 @@ export async function moveChannel({ server, channelName, newCategory, channelTyp
 	const guild = await findServer(server);
 
 	try {
+		await guild.channels.fetch();
+
 		let channelTypeNum: number | undefined;
 		if (channelType === 'text') channelTypeNum = 0;
 		else if (channelType === 'voice') channelTypeNum = 2;
 
-		const channel = guild.channels.cache.find(
+		let channel = guild.channels.cache.find(
 			(channel) =>
 				channel.name.toLowerCase() === channelName.toLowerCase() &&
 				(channelTypeNum === undefined || channel.type === channelTypeNum),
 		);
 
 		if (!channel) {
-			return `Channel "${channelName}" not found in ${guild.name}.`;
+			channel = guild.channels.cache.find(
+				(ch) =>
+					ch.name.toLowerCase().includes(channelName.toLowerCase().replace(/[^\w\s-]/g, '')) &&
+					(channelTypeNum === undefined || ch.type === channelTypeNum),
+			);
+		}
+
+		if (!channel) {
+			const simplifiedName = channelName.toLowerCase().replace(/[^\w]/g, '');
+			channel = guild.channels.cache.find(
+				(ch) =>
+					ch.name.toLowerCase().replace(/[^\w]/g, '').includes(simplifiedName) &&
+					(channelTypeNum === undefined || ch.type === channelTypeNum),
+			);
+		}
+
+		if (!channel) {
+			const availableChannels = guild.channels.cache
+				.filter((ch) => channelTypeNum === undefined || ch.type === channelTypeNum)
+				.map((ch) => ch.name)
+				.join(', ');
+			return `Channel "${channelName}" not found in ${guild.name}. Available channels: ${availableChannels}`;
 		}
 
 		const targetCategory = guild.channels.cache.find(
@@ -457,7 +480,11 @@ export async function moveChannel({ server, channelName, newCategory, channelTyp
 		);
 
 		if (!targetCategory) {
-			return `Category "${newCategory}" not found in ${guild.name}.`;
+			const availableCategories = guild.channels.cache
+				.filter((ch) => ch.type === 4)
+				.map((ch) => ch.name)
+				.join(', ');
+			return `Category "${newCategory}" not found in ${guild.name}. Available categories: ${availableCategories}`;
 		}
 
 		await channel.edit({ parent: targetCategory.id });
@@ -471,6 +498,8 @@ export async function renameChannel({ server, oldName, newName, channelType }: R
 	const guild = await findServer(server);
 
 	try {
+		await guild.channels.fetch();
+
 		let channelTypeNum: number | undefined;
 		if (channelType === 'text') channelTypeNum = 0;
 		else if (channelType === 'voice') channelTypeNum = 2;
@@ -483,11 +512,16 @@ export async function renameChannel({ server, oldName, newName, channelType }: R
 		);
 
 		if (!channel) {
-			return `Channel "${oldName}" not found in ${guild.name}.`;
+			const availableChannels = guild.channels.cache
+				.filter((ch) => channelTypeNum === undefined || ch.type === channelTypeNum)
+				.map((ch) => ch.name)
+				.join(', ');
+			return `Channel "${oldName}" not found in ${guild.name}. Available channels: ${availableChannels}`;
 		}
 
+		const oldChannelName = channel.name;
 		await channel.setName(newName);
-		return `Channel "${oldName}" renamed to "${newName}" in ${guild.name}.`;
+		return `Channel "${oldChannelName}" renamed to "${newName}" in ${guild.name}.`;
 	} catch (error) {
 		throw new Error(`Failed to rename channel: ${error}`);
 	}
