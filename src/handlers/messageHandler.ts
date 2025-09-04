@@ -8,19 +8,13 @@ import {
 	readDiscordMessages,
 	createVoiceChannel,
 	createTextChannel,
-	clearDiscordMessages,
 	createCategory,
-	deleteChannel,
-	deleteAllChannels,
 	listChannels,
 	moveChannel,
 	renameChannel,
-	bulkCreateChannels,
 	getServerInfo,
 	setChannelPermissions,
 	getUserInfo,
-	manageUserRole,
-	moderateUser,
 	manageReaction,
 	managePin,
 	createPoll,
@@ -30,6 +24,16 @@ import {
 	getServerStats,
 	findSuitableChannel,
 } from '../discord/operations.js';
+import {
+	deleteChannel,
+	deleteAllChannels,
+	clearDiscordMessages,
+	moderateUser,
+	manageUserRole,
+	bulkCreateChannels,
+	setOperationContext,
+	clearOperationContext,
+} from '../util/confirmedOperations.js';
 import type {
 	MessageData,
 	MessageHistory,
@@ -253,55 +257,50 @@ function buildConversationContext(
 	parts: Array<{ text: string }>;
 }> {
 	const aiConfig = {
-		maxRecentMessages: 15,
+		maxRecentMessages: 10,
 		functionCallPrefix: 'Function ',
 		messages: {
-			previousContext: 'Previous conversation context (maintain awareness of this throughout the conversation):',
+			previousContext: 'Previous conversation context:',
 			functionResults: 'Recent function call results (you can reference this data in your responses):',
+			functionResultItem: '{index}. {text}',
 		},
 	};
-
-	const recentMessages = conversationHistory.slice(-aiConfig.maxRecentMessages);
 
 	let conversation: Array<{
 		role: 'user' | 'model';
 		parts: Array<{ text: string }>;
-	}> = [];
-
-	if (recentMessages.length > 0) {
-		conversation.push({
+	}> = [
+		{
 			role: 'user',
-			parts: [{ text: aiConfig.messages.previousContext }],
-		});
+			parts: [{ text: contextualMessage }],
+		},
+	];
 
-		conversation.push(
+	const recentMessages = conversationHistory.slice(-aiConfig.maxRecentMessages);
+	if (recentMessages.length > 0) {
+		const functionResultsInHistory = recentMessages.filter(
+			(msg) => msg.role === 'user' && msg.parts[0]?.text?.startsWith(aiConfig.functionCallPrefix),
+		);
+
+		let contextMessage = aiConfig.messages.previousContext;
+		if (functionResultsInHistory.length > 0) {
+			contextMessage += '\n\n' + aiConfig.messages.functionResults;
+			functionResultsInHistory.forEach((result, index) => {
+				contextMessage += `\n${index + 1}. ${result.parts[0].text}`;
+			});
+		}
+
+		conversation.unshift(
+			{
+				role: 'user',
+				parts: [{ text: contextMessage }],
+			},
 			...recentMessages.map((msg) => ({
 				role: msg.role,
 				parts: msg.parts,
 			})),
 		);
-
-		const functionResultsInHistory = recentMessages.filter(
-			(msg) => msg.role === 'user' && msg.parts[0]?.text?.startsWith(aiConfig.functionCallPrefix),
-		);
-
-		if (functionResultsInHistory.length > 0) {
-			let functionResultsMessage = aiConfig.messages.functionResults;
-			functionResultsInHistory.forEach((result, index) => {
-				functionResultsMessage += `\n${index + 1}. ${result.parts[0].text}`;
-			});
-
-			conversation.push({
-				role: 'user',
-				parts: [{ text: functionResultsMessage }],
-			});
-		}
 	}
-
-	conversation.push({
-		role: 'user',
-		parts: [{ text: contextualMessage }],
-	});
 
 	return conversation;
 }
@@ -317,13 +316,23 @@ async function processFunctionCall(
 
 		const handler = functionHandlers[call.name];
 		if (handler) {
-			const normalizedArgs = normalizeChannelArgs(call.args, message.channelId, message.guildId || '');
-			const result = await handler(normalizedArgs);
-			functionResults.push({ name: call.name, result });
-			allFunctionResults.push({ name: call.name, result });
-			console.log(`Function call result for ${call.name}:`, result);
+			setOperationContext({
+				message,
+				userId: message.author.id,
+				channelId: message.channelId,
+			});
 
-			await new Promise((resolve) => setTimeout(resolve, 500));
+			try {
+				const normalizedArgs = normalizeChannelArgs(call.args, message.channelId, message.guildId || '');
+				const result = await handler(normalizedArgs);
+				functionResults.push({ name: call.name, result });
+				allFunctionResults.push({ name: call.name, result });
+				console.log(`Function call result for ${call.name}:`, result);
+
+				await new Promise((resolve) => setTimeout(resolve, 500));
+			} finally {
+				clearOperationContext();
+			}
 		} else {
 			console.warn(`Unknown function: ${call.name}`);
 			const errorResult = { error: `Unknown function: ${call.name}` };
@@ -331,7 +340,7 @@ async function processFunctionCall(
 			allFunctionResults.push({ name: call.name, result: errorResult });
 		}
 	} catch (error) {
-		console.error(`Call error for ${call.name}:`, error);
+		console.error('Call error:', error);
 		if (call.name) {
 			const errorResult = {
 				error: error instanceof Error ? error.message : 'Unknown error',
@@ -357,11 +366,6 @@ async function processFunctionCalls(
 	for (const call of response.functionCalls) {
 		await processFunctionCall(call, message, functionResults, allFunctionResults);
 	}
-
-	conversation.push({
-		role: 'model',
-		parts: [{ text: 'I executed the requested functions.' }],
-	});
 
 	for (const funcResult of functionResults) {
 		conversation.push({
