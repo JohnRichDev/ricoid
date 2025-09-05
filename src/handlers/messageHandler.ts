@@ -11,6 +11,8 @@ import {
 	createCategory,
 	listChannels,
 	moveChannel,
+	reorderChannel,
+	reorderChannels,
 	renameChannel,
 	getServerInfo,
 	setChannelPermissions,
@@ -45,6 +47,8 @@ import type {
 	DeleteAllChannelsData,
 	ListChannelsData,
 	MoveChannelData,
+	ReorderChannelData,
+	ReorderChannelsData,
 	RenameChannelData,
 	BulkCreateChannelsData,
 	ServerInfoData,
@@ -131,6 +135,12 @@ const functionHandlers: Record<string, (args: any) => Promise<any>> = {
 	},
 	moveChannel: async (args: MoveChannelData) => {
 		return await moveChannel(args);
+	},
+	reorderChannel: async (args: ReorderChannelData) => {
+		return await reorderChannel(args);
+	},
+	reorderChannels: async (args: ReorderChannelsData) => {
+		return await reorderChannels(args);
 	},
 	renameChannel: async (args: RenameChannelData) => {
 		return await renameChannel(args);
