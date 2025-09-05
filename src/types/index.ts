@@ -56,6 +56,20 @@ export interface MoveChannelData extends ServerIdentifier {
 	channelType?: 'text' | 'voice';
 }
 
+export interface ReorderChannelData extends ServerIdentifier {
+	channelName: string;
+	position: number;
+	channelType?: 'text' | 'voice' | 'category';
+}
+
+export interface ReorderChannelsData extends ServerIdentifier {
+	channels: Array<{
+		name: string;
+		position: number;
+		type?: 'text' | 'voice' | 'category';
+	}>;
+}
+
 export interface RenameChannelData extends ServerIdentifier {
 	oldName: string;
 	newName: string;

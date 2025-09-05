@@ -11,6 +11,8 @@ import type {
 	DeleteAllChannelsData,
 	ListChannelsData,
 	MoveChannelData,
+	ReorderChannelData,
+	ReorderChannelsData,
 	RenameChannelData,
 	BulkCreateChannelsData,
 	ServerInfoData,
@@ -59,6 +61,48 @@ function getChannelTypeDisplayName(channelType: number): string {
 		default:
 			return 'unknown';
 	}
+}
+
+function findChannelByName(guild: Guild, channelName: string, channelType?: number) {
+	const channels = guild.channels.cache;
+
+	let channel = channels.find(
+		(ch) =>
+			ch.name.toLowerCase() === channelName.toLowerCase() && (channelType === undefined || ch.type === channelType),
+	);
+
+	if (channel) return channel;
+
+	const simplifiedInput = channelName
+		.toLowerCase()
+		.replace(/[^\w\s-]/g, '')
+		.trim();
+
+	channel = channels.find((ch) => {
+		const simplifiedChannelName = ch.name
+			.toLowerCase()
+			.replace(/[^\w\s-]/g, '')
+			.trim();
+		return simplifiedChannelName === simplifiedInput && (channelType === undefined || ch.type === channelType);
+	});
+
+	if (channel) return channel;
+
+	channel = channels.find((ch) => {
+		const simplifiedChannelName = ch.name
+			.toLowerCase()
+			.replace(/[^\w\s-]/g, '')
+			.trim();
+		return simplifiedChannelName.includes(simplifiedInput) && (channelType === undefined || ch.type === channelType);
+	});
+
+	if (channel) return channel;
+
+	return channels.find(
+		(ch) =>
+			ch.name.toLowerCase().includes(channelName.toLowerCase()) &&
+			(channelType === undefined || ch.type === channelType),
+	);
 }
 
 export async function findServer(serverId?: string): Promise<Guild> {
@@ -389,46 +433,93 @@ export async function listChannels({ server, category }: ListChannelsData): Prom
 	const guild = await findServer(server);
 
 	try {
-		let channels;
+		await guild.channels.fetch();
+
 		if (category) {
 			const categoryChannel = guild.channels.cache.find(
-				(channel) => channel.name.toLowerCase() === category.toLowerCase() && channel.type === 4,
+				(channel) => channel.name.toLowerCase().includes(category.toLowerCase()) && channel.type === 4,
 			);
 
 			if (!categoryChannel) {
 				return `Category "${category}" not found in ${guild.name}.`;
 			}
 
-			channels = guild.channels.cache.filter((channel) => channel.parentId === categoryChannel.id);
-		} else {
-			channels = guild.channels.cache;
+			const categoryChannels = guild.channels.cache
+				.filter((channel) => channel.parentId === categoryChannel.id)
+				.sort((a, b) => {
+					const aPos = 'position' in a ? (a as any).position || 0 : 0;
+					const bPos = 'position' in b ? (b as any).position || 0 : 0;
+					return aPos - bPos;
+				});
+
+			let result = `**${categoryChannel.name}**\n`;
+
+			for (const channel of categoryChannels.values()) {
+				const channelIcon = channel.type === 0 ? '💬' : channel.type === 2 ? '🔊' : '📄';
+				const channelType = channel.type === 2 ? ' (vc)' : ' (chat)';
+				result += `↳ ${channelIcon} ${channel.name}${channelType}\n`;
+			}
+
+			return result || `**${categoryChannel.name}**\n(No channels in this category)`;
 		}
 
-		const textChannels = channels.filter((c) => c.type === 0).map((c) => `#${c.name}`);
-		const voiceChannels = channels.filter((c) => c.type === 2).map((c) => `🔊${c.name}`);
-		const categories = channels.filter((c) => c.type === 4).map((c) => `📁${c.name}`);
+		const allChannels = Array.from(guild.channels.cache.values());
 
-		let result = `Channels in ${guild.name}`;
-		if (category) result += ` (Category: ${category})`;
-		result += ':\n\n';
+		const categories = allChannels
+			.filter((c) => c.type === 4)
+			.sort((a, b) => {
+				const aPos = 'position' in a ? (a as any).position || 0 : 0;
+				const bPos = 'position' in b ? (b as any).position || 0 : 0;
+				return aPos - bPos;
+			});
 
-		if (categories.length > 0) {
-			result += `**Categories:**\n${categories.join('\n')}\n\n`;
+		const uncategorizedChannels = allChannels
+			.filter((c) => c.type !== 4 && !c.parentId)
+			.sort((a, b) => {
+				const aPos = 'position' in a ? (a as any).position || 0 : 0;
+				const bPos = 'position' in b ? (b as any).position || 0 : 0;
+				return aPos - bPos;
+			});
+
+		let result = `**Channel Structure for ${guild.name}:**\n\n`;
+
+		if (uncategorizedChannels.length > 0) {
+			result += `**🏠 Uncategorized Channels:**\n`;
+			for (const channel of uncategorizedChannels) {
+				const channelIcon = channel.type === 0 ? '💬' : channel.type === 2 ? '🔊' : '📄';
+				const channelType = channel.type === 2 ? ' (vc)' : channel.type === 0 ? ' (chat)' : '';
+				const position = 'position' in channel ? (channel as any).position || 0 : 0;
+				result += `${channelIcon} ${channel.name}${channelType} (pos: ${position})\n`;
+			}
+			result += '\n';
 		}
 
-		if (textChannels.length > 0) {
-			result += `**Text Channels:**\n${textChannels.join('\n')}\n\n`;
+		for (const category of categories) {
+			const categoryPosition = 'position' in category ? (category as any).position || 0 : 0;
+			result += `**📁 ${category.name}** (pos: ${categoryPosition})\n`;
+
+			const categoryChannels = allChannels
+				.filter((channel) => channel.parentId === category.id)
+				.sort((a, b) => {
+					const aPos = 'position' in a ? (a as any).position || 0 : 0;
+					const bPos = 'position' in b ? (b as any).position || 0 : 0;
+					return aPos - bPos;
+				});
+
+			if (categoryChannels.length === 0) {
+				result += `  ↳ (empty category)\n`;
+			} else {
+				for (const channel of categoryChannels) {
+					const channelIcon = channel.type === 0 ? '💬' : channel.type === 2 ? '🔊' : '📄';
+					const channelType = channel.type === 2 ? ' (vc)' : channel.type === 0 ? ' (chat)' : '';
+					const position = 'position' in channel ? (channel as any).position || 0 : 0;
+					result += `  ↳ ${channelIcon} ${channel.name}${channelType} (pos: ${position})\n`;
+				}
+			}
+			result += '\n';
 		}
 
-		if (voiceChannels.length > 0) {
-			result += `**Voice Channels:**\n${voiceChannels.join('\n')}\n\n`;
-		}
-
-		if (textChannels.length === 0 && voiceChannels.length === 0 && categories.length === 0) {
-			result += 'No channels found.';
-		}
-
-		return result;
+		return result.trim();
 	} catch (error) {
 		throw new Error(`Failed to list channels: ${error}`);
 	}
@@ -438,26 +529,30 @@ export async function moveChannel({ server, channelName, newCategory, channelTyp
 	const guild = await findServer(server);
 
 	try {
+		await guild.channels.fetch();
+
 		let channelTypeNum: number | undefined;
 		if (channelType === 'text') channelTypeNum = 0;
 		else if (channelType === 'voice') channelTypeNum = 2;
 
-		const channel = guild.channels.cache.find(
-			(channel) =>
-				channel.name.toLowerCase() === channelName.toLowerCase() &&
-				(channelTypeNum === undefined || channel.type === channelTypeNum),
-		);
+		const channel = findChannelByName(guild, channelName, channelTypeNum);
 
 		if (!channel) {
-			return `Channel "${channelName}" not found in ${guild.name}.`;
+			const availableChannels = guild.channels.cache
+				.filter((ch) => channelTypeNum === undefined || ch.type === channelTypeNum)
+				.map((ch) => ch.name)
+				.join(', ');
+			return `Channel "${channelName}" not found in ${guild.name}. Available channels: ${availableChannels}`;
 		}
 
-		const targetCategory = guild.channels.cache.find(
-			(c) => c.name.toLowerCase() === newCategory.toLowerCase() && c.type === 4,
-		);
+		const targetCategory = findChannelByName(guild, newCategory, 4);
 
 		if (!targetCategory) {
-			return `Category "${newCategory}" not found in ${guild.name}.`;
+			const availableCategories = guild.channels.cache
+				.filter((ch) => ch.type === 4)
+				.map((ch) => ch.name)
+				.join(', ');
+			return `Category "${newCategory}" not found in ${guild.name}. Available categories: ${availableCategories}`;
 		}
 
 		await channel.edit({ parent: targetCategory.id });
@@ -467,27 +562,145 @@ export async function moveChannel({ server, channelName, newCategory, channelTyp
 	}
 }
 
-export async function renameChannel({ server, oldName, newName, channelType }: RenameChannelData): Promise<string> {
+export async function reorderChannel({
+	server,
+	channelName,
+	position,
+	channelType,
+}: ReorderChannelData): Promise<string> {
 	const guild = await findServer(server);
 
 	try {
+		await guild.channels.fetch();
+
 		let channelTypeNum: number | undefined;
 		if (channelType === 'text') channelTypeNum = 0;
 		else if (channelType === 'voice') channelTypeNum = 2;
 		else if (channelType === 'category') channelTypeNum = 4;
 
-		const channel = guild.channels.cache.find(
-			(channel) =>
-				channel.name.toLowerCase() === oldName.toLowerCase() &&
-				(channelTypeNum === undefined || channel.type === channelTypeNum),
-		);
+		const channel = findChannelByName(guild, channelName, channelTypeNum);
 
 		if (!channel) {
-			return `Channel "${oldName}" not found in ${guild.name}.`;
+			const availableChannels = guild.channels.cache
+				.filter((ch) => channelTypeNum === undefined || ch.type === channelTypeNum)
+				.map((ch) => ch.name)
+				.join(', ');
+			return `Channel "${channelName}" not found in ${guild.name}. Available channels: ${availableChannels}`;
 		}
 
+		if (!('position' in channel) || !('setPosition' in channel)) {
+			return `Cannot reorder this type of channel: "${channelName}". Only text channels, voice channels, and categories can be reordered.`;
+		}
+
+		const oldPosition = (channel as any).position;
+
+		await (channel as any).setPosition(position);
+
+		const channelTypeDisplay =
+			channel.type === 0
+				? 'text channel'
+				: channel.type === 2
+					? 'voice channel'
+					: channel.type === 4
+						? 'category'
+						: 'channel';
+
+		return `${channelTypeDisplay.charAt(0).toUpperCase() + channelTypeDisplay.slice(1)} "${channel.name}" moved from position ${oldPosition} to position ${position} in ${guild.name}.`;
+	} catch (error) {
+		throw new Error(`Failed to reorder channel: ${error}`);
+	}
+}
+
+export async function reorderChannels({ server, channels }: ReorderChannelsData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		await guild.channels.fetch();
+
+		const results: string[] = [];
+		const errors: string[] = [];
+
+		for (const channelInfo of channels) {
+			let channelTypeNum: number | undefined;
+			if (channelInfo.type === 'text') channelTypeNum = 0;
+			else if (channelInfo.type === 'voice') channelTypeNum = 2;
+			else if (channelInfo.type === 'category') channelTypeNum = 4;
+
+			const channel = findChannelByName(guild, channelInfo.name, channelTypeNum);
+
+			if (!channel) {
+				errors.push(`Channel "${channelInfo.name}" not found`);
+				continue;
+			}
+
+			try {
+				if (!('position' in channel) || !('setPosition' in channel)) {
+					errors.push(
+						`Cannot reorder channel "${channelInfo.name}": Only text channels, voice channels, and categories can be reordered`,
+					);
+					continue;
+				}
+
+				const oldPosition = (channel as any).position;
+				await (channel as any).setPosition(channelInfo.position);
+
+				const channelTypeDisplay =
+					channel.type === 0
+						? 'text channel'
+						: channel.type === 2
+							? 'voice channel'
+							: channel.type === 4
+								? 'category'
+								: 'channel';
+
+				results.push(
+					`${channelTypeDisplay.charAt(0).toUpperCase() + channelTypeDisplay.slice(1)} "${channel.name}" moved from position ${oldPosition} to ${channelInfo.position}`,
+				);
+			} catch (error) {
+				errors.push(`Failed to move "${channelInfo.name}": ${error}`);
+			}
+		}
+
+		let response = `Bulk channel reordering completed in ${guild.name}.\n\n`;
+
+		if (results.length > 0) {
+			response += `**Successfully reordered:**\n${results.join('\n')}\n\n`;
+		}
+
+		if (errors.length > 0) {
+			response += `**Errors:**\n${errors.join('\n')}`;
+		}
+
+		return response.trim();
+	} catch (error) {
+		throw new Error(`Failed to bulk reorder channels: ${error}`);
+	}
+}
+
+export async function renameChannel({ server, oldName, newName, channelType }: RenameChannelData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		await guild.channels.fetch();
+
+		let channelTypeNum: number | undefined;
+		if (channelType === 'text') channelTypeNum = 0;
+		else if (channelType === 'voice') channelTypeNum = 2;
+		else if (channelType === 'category') channelTypeNum = 4;
+
+		const channel = findChannelByName(guild, oldName, channelTypeNum);
+
+		if (!channel) {
+			const availableChannels = guild.channels.cache
+				.filter((ch) => channelTypeNum === undefined || ch.type === channelTypeNum)
+				.map((ch) => ch.name)
+				.join(', ');
+			return `Channel "${oldName}" not found in ${guild.name}. Available channels: ${availableChannels}`;
+		}
+
+		const oldChannelName = channel.name;
 		await channel.setName(newName);
-		return `Channel "${oldName}" renamed to "${newName}" in ${guild.name}.`;
+		return `Channel "${oldChannelName}" renamed to "${newName}" in ${guild.name}.`;
 	} catch (error) {
 		throw new Error(`Failed to rename channel: ${error}`);
 	}
