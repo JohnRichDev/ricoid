@@ -133,7 +133,7 @@ export function createAITools() {
 			{
 				name: 'listChannels',
 				description:
-					'List all channels in a Discord server, optionally filtered by category. Text channels will show their topics.',
+					'List all channels and categories in a Discord server in their current hierarchical order with positions. Shows the exact structure as users see it, including category → channel relationships and position numbers.',
 				parameters: {
 					type: Type.OBJECT,
 					properties: {
@@ -143,7 +143,7 @@ export function createAITools() {
 						},
 						category: {
 							type: Type.STRING,
-							description: 'Optional category name to filter channels by',
+							description: 'Optional category name to show only channels within that category',
 						},
 					},
 					required: [],
@@ -201,6 +201,71 @@ export function createAITools() {
 						},
 					},
 					required: ['oldName', 'newName'],
+				},
+			},
+			{
+				name: 'reorderChannel',
+				description:
+					'Move a single channel or category to a different position in the server (e.g., move to top, bottom, or specific order)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (optional if bot is only in one server)',
+						},
+						channelName: {
+							type: Type.STRING,
+							description: 'Name of the channel or category to reorder',
+						},
+						position: {
+							type: Type.NUMBER,
+							description: 'New position for the channel (0 = top, higher numbers = lower position)',
+						},
+						channelType: {
+							type: Type.STRING,
+							description: 'Type of channel to reorder (text, voice, or category)',
+							enum: ['text', 'voice', 'category'],
+						},
+					},
+					required: ['channelName', 'position'],
+				},
+			},
+			{
+				name: 'reorderChannels',
+				description: 'Reorganize multiple channels or categories at once to create a better server structure',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (optional if bot is only in one server)',
+						},
+						channels: {
+							type: Type.ARRAY,
+							description: 'Array of channel objects with name, position, and optional type',
+							items: {
+								type: Type.OBJECT,
+								properties: {
+									name: {
+										type: Type.STRING,
+										description: 'Channel or category name',
+									},
+									position: {
+										type: Type.NUMBER,
+										description: 'New position for this channel (0 = top)',
+									},
+									type: {
+										type: Type.STRING,
+										description: 'Type of channel (text, voice, or category)',
+										enum: ['text', 'voice', 'category'],
+									},
+								},
+								required: ['name', 'position'],
+							},
+						},
+					},
+					required: ['channels'],
 				},
 			},
 			{
