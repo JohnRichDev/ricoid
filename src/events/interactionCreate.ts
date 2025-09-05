@@ -21,6 +21,10 @@ export default {
 			return;
 		}
 
+		if (interaction.isButton()) {
+			return;
+		}
+
 		if (interaction.isChatInputCommand()) {
 			const command = commands.get(interaction.commandName);
 

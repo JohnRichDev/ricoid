@@ -8,21 +8,15 @@ import {
 	readDiscordMessages,
 	createVoiceChannel,
 	createTextChannel,
-	clearDiscordMessages,
 	createCategory,
-	deleteChannel,
-	deleteAllChannels,
 	listChannels,
 	moveChannel,
 	reorderChannel,
 	reorderChannels,
 	renameChannel,
-	bulkCreateChannels,
 	getServerInfo,
 	setChannelPermissions,
 	getUserInfo,
-	manageUserRole,
-	moderateUser,
 	manageReaction,
 	managePin,
 	createPoll,
@@ -32,6 +26,16 @@ import {
 	getServerStats,
 	findSuitableChannel,
 } from '../discord/operations.js';
+import {
+	deleteChannel,
+	deleteAllChannels,
+	clearDiscordMessages,
+	moderateUser,
+	manageUserRole,
+	bulkCreateChannels,
+	setOperationContext,
+	clearOperationContext,
+} from '../util/confirmedOperations.js';
 import type {
 	MessageData,
 	MessageHistory,
@@ -322,11 +326,23 @@ async function processFunctionCall(
 
 		const handler = functionHandlers[call.name];
 		if (handler) {
-			const normalizedArgs = normalizeChannelArgs(call.args, message.channelId, message.guildId || '');
-			const result = await handler(normalizedArgs);
-			functionResults.push({ name: call.name, result });
-			allFunctionResults.push({ name: call.name, result });
-			console.log('Function call result:', result);
+			setOperationContext({
+				message,
+				userId: message.author.id,
+				channelId: message.channelId,
+			});
+
+			try {
+				const normalizedArgs = normalizeChannelArgs(call.args, message.channelId, message.guildId || '');
+				const result = await handler(normalizedArgs);
+				functionResults.push({ name: call.name, result });
+				allFunctionResults.push({ name: call.name, result });
+				console.log(`Function call result for ${call.name}:`, result);
+
+				await new Promise((resolve) => setTimeout(resolve, 500));
+			} finally {
+				clearOperationContext();
+			}
 		} else {
 			console.warn(`Unknown function: ${call.name}`);
 			const errorResult = { error: `Unknown function: ${call.name}` };
@@ -360,11 +376,6 @@ async function processFunctionCalls(
 	for (const call of response.functionCalls) {
 		await processFunctionCall(call, message, functionResults, allFunctionResults);
 	}
-
-	conversation.push({
-		role: 'model',
-		parts: [{ text: 'I executed the requested functions.' }],
-	});
 
 	for (const funcResult of functionResults) {
 		conversation.push({
