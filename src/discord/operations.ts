@@ -116,36 +116,35 @@ export async function findServer(serverId?: string): Promise<Guild> {
 		throw new Error(`Multiple servers. Specify name/ID. Available: ${serverList}`);
 	}
 
+	let server: Guild | undefined;
 	try {
-		const server = await discordClient.guilds.fetch(serverId);
-		if (server) return server;
-	} catch {
-		if (/^\d{17,19}$/.test(serverId)) {
-			for (const guild of discordClient.guilds.cache.values()) {
-				try {
-					const channel = await guild.channels.fetch(serverId);
-					if (channel) {
-						return guild;
-					}
-				} catch {}
-			}
-		}
+		server = await discordClient.guilds.fetch(serverId);
+	} catch {}
+	if (server) return server;
 
-		const servers = discordClient.guilds.cache.filter((g) => g.name.toLowerCase() === serverId.toLowerCase());
-
-		if (servers.size === 0) {
-			const availableServers = Array.from(discordClient.guilds.cache.values())
-				.map((g) => `"${g.name}"`)
-				.join(', ');
-			throw new Error(`Server "${serverId}" not found. Available: ${availableServers}`);
+	if (/^\d{17,19}$/.test(serverId)) {
+		for (const guild of discordClient.guilds.cache.values()) {
+			try {
+				const channel = await guild.channels.fetch(serverId);
+				if (channel) {
+					return guild;
+				}
+			} catch {}
 		}
-		if (servers.size > 1) {
-			const serverList = servers.map((g) => `${g.name} (ID: ${g.id})`).join(', ');
-			throw new Error(`Multiple servers found: ${serverList}. Use ID.`);
-		}
-		return servers.first()!;
 	}
-	throw new Error(`Server "${serverId}" not found`);
+
+	const servers = discordClient.guilds.cache.filter((g) => g.name.toLowerCase() === serverId.toLowerCase());
+	if (servers.size === 0) {
+		const availableServers = Array.from(discordClient.guilds.cache.values())
+			.map((g) => `"${g.name}"`)
+			.join(', ');
+		throw new Error(`Server "${serverId}" not found. Available: ${availableServers}`);
+	}
+	if (servers.size > 1) {
+		const serverList = servers.map((g) => `${g.name} (ID: ${g.id})`).join(', ');
+		throw new Error(`Multiple servers found: ${serverList}. Use ID.`);
+	}
+	return servers.first()!;
 }
 
 export async function findTextChannel(channelId: string, serverId?: string): Promise<TextChannel> {
@@ -455,7 +454,10 @@ export async function listChannels({ server, category }: ListChannelsData): Prom
 			let result = `**${categoryChannel.name}**\n`;
 
 			for (const channel of categoryChannels.values()) {
-				const channelIcon = channel.type === 0 ? '💬' : channel.type === 2 ? '🔊' : '📄';
+				let channelIcon;
+				if (channel.type === 0) channelIcon = '💬';
+				else if (channel.type === 2) channelIcon = '🔊';
+				else channelIcon = '📄';
 				const channelType = channel.type === 2 ? ' (vc)' : ' (chat)';
 				result += `↳ ${channelIcon} ${channel.name}${channelType}\n`;
 			}
@@ -486,8 +488,13 @@ export async function listChannels({ server, category }: ListChannelsData): Prom
 		if (uncategorizedChannels.length > 0) {
 			result += `**🏠 Uncategorized Channels:**\n`;
 			for (const channel of uncategorizedChannels) {
-				const channelIcon = channel.type === 0 ? '💬' : channel.type === 2 ? '🔊' : '📄';
-				const channelType = channel.type === 2 ? ' (vc)' : channel.type === 0 ? ' (chat)' : '';
+				let channelIcon;
+				if (channel.type === 0) channelIcon = '💬';
+				else if (channel.type === 2) channelIcon = '🔊';
+				else channelIcon = '📄';
+				let channelType = '';
+				if (channel.type === 2) channelType = ' (vc)';
+				else if (channel.type === 0) channelType = ' (chat)';
 				const position = 'position' in channel ? (channel as any).position || 0 : 0;
 				result += `${channelIcon} ${channel.name}${channelType} (pos: ${position})\n`;
 			}
@@ -510,8 +517,13 @@ export async function listChannels({ server, category }: ListChannelsData): Prom
 				result += `  ↳ (empty category)\n`;
 			} else {
 				for (const channel of categoryChannels) {
-					const channelIcon = channel.type === 0 ? '💬' : channel.type === 2 ? '🔊' : '📄';
-					const channelType = channel.type === 2 ? ' (vc)' : channel.type === 0 ? ' (chat)' : '';
+					let channelIcon;
+					if (channel.type === 0) channelIcon = '💬';
+					else if (channel.type === 2) channelIcon = '🔊';
+					else channelIcon = '📄';
+					let channelType = '';
+					if (channel.type === 2) channelType = ' (vc)';
+					else if (channel.type === 0) channelType = ' (chat)';
 					const position = 'position' in channel ? (channel as any).position || 0 : 0;
 					result += `  ↳ ${channelIcon} ${channel.name}${channelType} (pos: ${position})\n`;
 				}
@@ -596,14 +608,10 @@ export async function reorderChannel({
 
 		await (channel as any).setPosition(position);
 
-		const channelTypeDisplay =
-			channel.type === 0
-				? 'text channel'
-				: channel.type === 2
-					? 'voice channel'
-					: channel.type === 4
-						? 'category'
-						: 'channel';
+		let channelTypeDisplay = 'channel';
+		if (channel.type === 0) channelTypeDisplay = 'text channel';
+		else if (channel.type === 2) channelTypeDisplay = 'voice channel';
+		else if (channel.type === 4) channelTypeDisplay = 'category';
 
 		return `${channelTypeDisplay.charAt(0).toUpperCase() + channelTypeDisplay.slice(1)} "${channel.name}" moved from position ${oldPosition} to position ${position} in ${guild.name}.`;
 	} catch (error) {
@@ -1191,59 +1199,50 @@ export async function createPoll({ server, channel, question, options, duration 
 
 export async function playGame({ type, userChoice }: GameData): Promise<string> {
 	try {
-		switch (type) {
-			case 'rps':
-				const choices = ['rock', 'paper', 'scissors'];
-				const botChoice = choices[Math.floor(Math.random() * choices.length)];
-
-				if (!userChoice || !choices.includes(userChoice.toLowerCase())) {
-					return `Invalid choice! Please choose: ${choices.join(', ')}`;
-				}
-
-				const user = userChoice.toLowerCase();
-				let result = `You chose: ${user}\nBot chose: ${botChoice}\n\n`;
-
-				if (user === botChoice) {
-					result += "It's a tie!";
-				} else if (
-					(user === 'rock' && botChoice === 'scissors') ||
-					(user === 'paper' && botChoice === 'rock') ||
-					(user === 'scissors' && botChoice === 'paper')
-				) {
-					result += 'You win!';
-				} else {
-					result += 'Bot wins!';
-				}
-
-				return result;
-
-			case 'coinflip':
-				const coinResult = Math.random() < 0.5 ? 'heads' : 'tails';
-				return `Coin flip result: **${coinResult.toUpperCase()}**`;
-
-			case 'dice':
-				const diceRoll = Math.floor(Math.random() * 6) + 1;
-				return `Dice roll result: **${diceRoll}**`;
-
-			case 'number_guess':
-				const targetNumber = Math.floor(Math.random() * 100) + 1;
-				const guess = parseInt(userChoice || '0');
-
-				if (isNaN(guess)) {
-					return 'Please provide a valid number to guess!';
-				}
-
-				if (guess === targetNumber) {
-					return `Correct! The number was ${targetNumber}`;
-				} else if (guess < targetNumber) {
-					return `Too low! Try a higher number.`;
-				} else {
-					return `Too high! Try a lower number.`;
-				}
-
-			default:
-				return `Unknown game type. Available games: rps, coinflip, dice, number_guess`;
+		if (type === 'rps') {
+			const choices = ['rock', 'paper', 'scissors'];
+			const botChoice = choices[Math.floor(Math.random() * choices.length)];
+			if (!userChoice || !choices.includes(userChoice.toLowerCase())) {
+				return `Invalid choice! Please choose: ${choices.join(', ')}`;
+			}
+			const user = userChoice.toLowerCase();
+			let result = `You chose: ${user}\nBot chose: ${botChoice}\n\n`;
+			if (user === botChoice) {
+				result += "It's a tie!";
+			} else if (
+				(user === 'rock' && botChoice === 'scissors') ||
+				(user === 'paper' && botChoice === 'rock') ||
+				(user === 'scissors' && botChoice === 'paper')
+			) {
+				result += 'You win!';
+			} else {
+				result += 'Bot wins!';
+			}
+			return result;
 		}
+		if (type === 'coinflip') {
+			const coinResult = Math.random() < 0.5 ? 'heads' : 'tails';
+			return `Coin flip result: **${coinResult.toUpperCase()}**`;
+		}
+		if (type === 'dice') {
+			const diceRoll = Math.floor(Math.random() * 6) + 1;
+			return `Dice roll result: **${diceRoll}**`;
+		}
+		if (type === 'number_guess') {
+			const targetNumber = Math.floor(Math.random() * 100) + 1;
+			const guess = parseInt(userChoice || '0');
+			if (isNaN(guess)) {
+				return 'Please provide a valid number to guess!';
+			}
+			if (guess === targetNumber) {
+				return `Correct! The number was ${targetNumber}`;
+			} else if (guess < targetNumber) {
+				return `Too low! Try a higher number.`;
+			} else {
+				return `Too high! Try a lower number.`;
+			}
+		}
+		return `Unknown game type. Available games: rps, coinflip, dice, number_guess`;
 	} catch (error) {
 		throw new Error(`Failed to play game: ${error}`);
 	}
@@ -1375,12 +1374,13 @@ function calculateMemberStats(members: any, guild: Guild) {
 }
 
 function calculateChannelStats(channels: any) {
-	return {
-		text: channels.filter((c: any) => c.type === 0).size,
-		voice: channels.filter((c: any) => c.type === 2).size,
-		categories: channels.filter((c: any) => c.type === 4).size,
-		total: channels.size,
-	};
+	const stats = { text: 0, voice: 0, categories: 0, total: channels.size };
+	for (const c of channels.values()) {
+		if (c.type === 0) stats.text++;
+		else if (c.type === 2) stats.voice++;
+		else if (c.type === 4) stats.categories++;
+	}
+	return stats;
 }
 
 function formatMemberStatistics(memberStats: any) {
