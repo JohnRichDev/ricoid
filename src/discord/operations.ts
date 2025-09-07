@@ -33,6 +33,8 @@ import type {
 	DeleteInviteData,
 	CreateRoleData,
 	EditRoleData,
+	DeleteRoleData,
+	ListRolesData,
 	EmojiData,
 	RemoveEmojiData,
 	ListEmojisData,
@@ -1589,6 +1591,57 @@ export async function editRole({ server, roleName, newName, newColor }: EditRole
 	}
 }
 
+export async function deleteRole({ server, roleName }: DeleteRoleData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		const role = guild.roles.cache.find((r) => r.name.toLowerCase() === roleName.toLowerCase());
+		if (!role) {
+			return `Role "${roleName}" not found`;
+		}
+
+		if (role.managed) {
+			return `Role "${roleName}" is managed by an integration and cannot be deleted`;
+		}
+
+		if (role.id === guild.id) {
+			return `Cannot delete the @everyone role`;
+		}
+
+		await role.delete();
+		return `Role "${roleName}" deleted successfully`;
+	} catch (error) {
+		throw new Error(`Failed to delete role: ${error}`);
+	}
+}
+
+export async function listRoles({ server }: ListRolesData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		const roles = guild.roles.cache
+			.filter((role) => role.name !== '@everyone')
+			.sort((a, b) => b.position - a.position)
+			.map((role) => ({
+				name: role.name,
+				id: role.id,
+				color: role.hexColor,
+				memberCount: role.members.size,
+				permissions: role.permissions.toArray(),
+				managed: role.managed,
+				position: role.position,
+			}));
+
+		if (roles.length === 0) {
+			return 'No custom roles found in this server.';
+		}
+
+		return JSON.stringify(roles, null, 2);
+	} catch (error) {
+		throw new Error(`Failed to list roles: ${error}`);
+	}
+}
+
 export async function addEmoji({ server, name, imageUrl }: EmojiData): Promise<string> {
 	const guild = await findServer(server);
 
@@ -1867,5 +1920,35 @@ export async function deleteWebhook({ server, webhookId }: DeleteWebhookData): P
 		return `Webhook "${webhook.name}" deleted`;
 	} catch (error) {
 		throw new Error(`Failed to delete webhook: ${error}`);
+	}
+}
+
+export async function getBotInfo({ server }: { server?: string }): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		const botMember = guild.members.cache.get(discordClient.user!.id);
+		if (!botMember) {
+			return `Bot not found in ${guild.name}`;
+		}
+
+		const botInfo = {
+			id: discordClient.user!.id,
+			username: discordClient.user!.username,
+			displayName: botMember.displayName,
+			tag: discordClient.user!.tag,
+			joinedAt: botMember.joinedAt?.toISOString(),
+			roles: botMember.roles.cache
+				.filter((role) => role.name !== '@everyone')
+				.map((role) => ({
+					name: role.name,
+					id: role.id,
+					color: role.hexColor,
+				})),
+		};
+
+		return JSON.stringify(botInfo, null, 2);
+	} catch (error) {
+		throw new Error(`Failed to get bot info: ${error}`);
 	}
 }
