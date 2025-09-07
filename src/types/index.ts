@@ -238,6 +238,12 @@ export interface EditRoleData extends ServerIdentifier {
 	newColor?: string;
 }
 
+export interface DeleteRoleData extends ServerIdentifier {
+	roleName: string;
+}
+
+export interface ListRolesData extends ServerIdentifier {}
+
 export interface EmojiData extends ServerIdentifier {
 	name: string;
 	imageUrl?: string;
@@ -301,3 +307,5 @@ export interface ListWebhooksData extends ServerIdentifier {}
 export interface DeleteWebhookData extends ServerIdentifier {
 	webhookId: string;
 }
+
+export interface GetBotInfoData extends ServerIdentifier {}
