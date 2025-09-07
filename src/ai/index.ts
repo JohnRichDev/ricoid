@@ -717,6 +717,161 @@ export function createAITools() {
 					required: [],
 				},
 			},
+			{
+				name: 'createRole',
+				description: 'Create a new role in a Discord server',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						name: {
+							type: Type.STRING,
+							description: 'Name for the new role',
+						},
+						color: {
+							type: Type.STRING,
+							description: 'Hex color code for the role (e.g., #FF0000 for red)',
+						},
+						permissions: {
+							type: Type.ARRAY,
+							description: 'Array of permission names to grant to this role',
+							items: {
+								type: Type.STRING,
+							},
+						},
+					},
+					required: ['name'],
+				},
+			},
+			{
+				name: 'editRole',
+				description: 'Edit an existing role in a Discord server (change name or color)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						roleName: {
+							type: Type.STRING,
+							description: 'Current name of the role to edit',
+						},
+						newName: {
+							type: Type.STRING,
+							description: 'New name for the role (optional)',
+						},
+						newColor: {
+							type: Type.STRING,
+							description: 'New hex color code for the role (e.g., #00FF00 for green, optional)',
+						},
+					},
+					required: ['roleName'],
+				},
+			},
+			{
+				name: 'deleteRole',
+				description: 'Delete a role from a Discord server',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						roleName: {
+							type: Type.STRING,
+							description: 'Name of the role to delete',
+						},
+					},
+					required: ['roleName'],
+				},
+			},
+			{
+				name: 'listRoles',
+				description: 'List all roles in a Discord server with their details',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'createWebhook',
+				description: 'Create a webhook for a Discord channel to send messages from external services',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Channel name or ID to create the webhook in',
+						},
+						name: {
+							type: Type.STRING,
+							description: 'Name for the webhook',
+						},
+					},
+					required: ['channel', 'name'],
+				},
+			},
+			{
+				name: 'listWebhooks',
+				description: 'List all webhooks in a Discord server',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'deleteWebhook',
+				description: 'Delete a webhook from a Discord server',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						webhookId: {
+							type: Type.STRING,
+							description: 'ID of the webhook to delete',
+						},
+					},
+					required: ['webhookId'],
+				},
+			},
+			{
+				name: 'getBotInfo',
+				description: 'Get information about the bot itself including its user ID and current roles',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+					},
+					required: [],
+				},
+			},
 		],
 	};
 }

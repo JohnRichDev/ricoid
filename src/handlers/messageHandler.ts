@@ -25,6 +25,14 @@ import {
 	calculate,
 	getServerStats,
 	findSuitableChannel,
+	createRole,
+	editRole,
+	deleteRole,
+	listRoles,
+	createWebhook,
+	listWebhooks,
+	deleteWebhook,
+	getBotInfo,
 } from '../discord/operations.js';
 import {
 	deleteChannel,
@@ -63,6 +71,14 @@ import type {
 	GameData,
 	CalculatorData,
 	ServerStatsData,
+	CreateRoleData,
+	EditRoleData,
+	DeleteRoleData,
+	ListRolesData,
+	CreateWebhookData,
+	ListWebhooksData,
+	DeleteWebhookData,
+	GetBotInfoData,
 } from '../types/index.js';
 import { getConversationHistory, addMessageToConversation, type ConversationMessage } from '../util/settingsStore.js';
 
@@ -186,6 +202,30 @@ const functionHandlers: Record<string, (args: any) => Promise<any>> = {
 	},
 	getServerStats: async (args: ServerStatsData) => {
 		return await getServerStats(args);
+	},
+	createRole: async (args: CreateRoleData) => {
+		return await createRole(args);
+	},
+	editRole: async (args: EditRoleData) => {
+		return await editRole(args);
+	},
+	deleteRole: async (args: DeleteRoleData) => {
+		return await deleteRole(args);
+	},
+	listRoles: async (args: ListRolesData) => {
+		return await listRoles(args);
+	},
+	createWebhook: async (args: CreateWebhookData) => {
+		return await createWebhook(args);
+	},
+	listWebhooks: async (args: ListWebhooksData) => {
+		return await listWebhooks(args);
+	},
+	deleteWebhook: async (args: DeleteWebhookData) => {
+		return await deleteWebhook(args);
+	},
+	getBotInfo: async (args: GetBotInfoData) => {
+		return await getBotInfo(args);
 	},
 	reloadSettings: async () => {
 		reloadSettings();

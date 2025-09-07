@@ -111,11 +111,10 @@ export async function createConfirmation(
 
 		const confirmed = buttonInteraction.customId === 'confirm';
 
+		let desc = finalConfig.description.replace(/\n?\n?This action cannot be undone\.?$/i, '');
 		const resultEmbed = new EmbedBuilder()
 			.setTitle(finalConfig.title)
-			.setDescription(
-				confirmed ? `✅ **Confirmed** - ${finalConfig.description}` : `❌ **Cancelled** - ${finalConfig.description}`,
-			)
+			.setDescription(confirmed ? `✅ **Confirmed** - ${desc}` : `❌ **Cancelled** - ${desc}`)
 			.setColor(confirmed ? 0x00ff00 : 0xff9900)
 			.setTimestamp();
 
@@ -262,11 +261,10 @@ export async function createAIConfirmation(
 
 		const confirmed = buttonInteraction.customId === 'confirm';
 
+		let desc = finalConfig.description.replace(/\n?\n?This action cannot be undone\.?$/i, '');
 		const resultEmbed = new EmbedBuilder()
 			.setTitle(finalConfig.title)
-			.setDescription(
-				confirmed ? `✅ **Confirmed** - ${finalConfig.description}` : `❌ **Cancelled** - ${finalConfig.description}`,
-			)
+			.setDescription(confirmed ? `✅ **Confirmed** - ${desc}` : `❌ **Cancelled** - ${desc}`)
 			.setColor(confirmed ? 0x00ff00 : 0xff9900)
 			.setTimestamp();
 
