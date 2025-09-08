@@ -5,6 +5,10 @@ export type StoredSettings = {
 	prompt?: string;
 	access?: string[];
 	channel?: string;
+	confirmations?: {
+		enabled: boolean;
+		types: Record<string, boolean>;
+	};
 };
 
 const filePath = resolve(process.cwd(), 'data', 'settings.json');
