@@ -8,6 +8,9 @@ import {
 	moderateUser as originalModerateUser,
 	manageUserRole as originalManageUserRole,
 	bulkCreateChannels as originalBulkCreateChannels,
+	createRole as originalCreateRole,
+	editRole as originalEditRole,
+	deleteRole as originalDeleteRole,
 } from '../discord/operations.js';
 import type {
 	DeleteChannelData,
@@ -16,7 +19,12 @@ import type {
 	ModerationData,
 	RoleManagementData,
 	BulkCreateChannelsData,
+	CreateRoleData,
+	EditRoleData,
+	DeleteRoleData,
 } from '../types/index.js';
+import { readSettings } from './settingsStore.js';
+import { shouldShowConfirmation } from '../commands/utility/settings/confirmationModule.js';
 
 interface OperationContext {
 	message?: Message;
@@ -214,4 +222,82 @@ export async function bulkCreateChannels(args: BulkCreateChannelsData): Promise<
 	}
 
 	return await originalBulkCreateChannels(args);
+}
+
+export async function createRole(args: CreateRoleData): Promise<string> {
+	const settings = await readSettings();
+
+	if (!currentContext.channelId || !currentContext.userId || !shouldShowConfirmation(settings, 'role-create')) {
+		return await originalCreateRole(args);
+	}
+
+	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {
+		title: '✨ Create Role',
+		description: `Are you sure you want to create the role **${args.name}**?${args.color ? `\n**Color:** ${args.color}` : ''}${args.permissions?.length ? `\n**Permissions:** ${args.permissions.join(', ')}` : ''}\n\nThis will create a new role in the server.`,
+		dangerous: false,
+		confirmButtonLabel: 'Create Role',
+	});
+
+	if (!confirmation.confirmed) {
+		if (confirmation.timedOut) {
+			return `Role creation timed out - **${args.name}** was not created.`;
+		}
+		return `Role creation cancelled - **${args.name}** was not created.`;
+	}
+
+	return await originalCreateRole(args);
+}
+
+export async function editRole(args: EditRoleData): Promise<string> {
+	const settings = await readSettings();
+
+	if (!currentContext.channelId || !currentContext.userId || !shouldShowConfirmation(settings, 'role-edit')) {
+		return await originalEditRole(args);
+	}
+
+	const changes: string[] = [];
+	if (args.newName) changes.push(`Name: **${args.newName}**`);
+	if (args.newColor) changes.push(`Color: **${args.newColor}**`);
+	const changesText = changes.length ? `\n**Changes:**\n${changes.map((c) => `• ${c}`).join('\n')}` : '';
+
+	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {
+		title: '✏️ Edit Role',
+		description: `Are you sure you want to edit the role **${args.roleName}**?${changesText}\n\nThis will modify the role settings.`,
+		dangerous: false,
+		confirmButtonLabel: 'Edit Role',
+	});
+
+	if (!confirmation.confirmed) {
+		if (confirmation.timedOut) {
+			return `Role editing timed out - **${args.roleName}** was not modified.`;
+		}
+		return `Role editing cancelled - **${args.roleName}** was not modified.`;
+	}
+
+	return await originalEditRole(args);
+}
+
+export async function deleteRole(args: DeleteRoleData): Promise<string> {
+	const settings = await readSettings();
+
+	if (!currentContext.channelId || !currentContext.userId || !shouldShowConfirmation(settings, 'role-delete')) {
+		return await originalDeleteRole(args);
+	}
+
+	const confirmation = await ConfirmationTemplates.delete(
+		currentContext.channelId,
+		currentContext.userId,
+		args.roleName,
+		'role',
+		'This action cannot be undone. Users with this role will lose it permanently.',
+	);
+
+	if (!confirmation.confirmed) {
+		if (confirmation.timedOut) {
+			return `Role deletion timed out - **${args.roleName}** was not deleted.`;
+		}
+		return `Role deletion cancelled - **${args.roleName}** was not deleted.`;
+	}
+
+	return await originalDeleteRole(args);
 }
