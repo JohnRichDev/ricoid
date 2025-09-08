@@ -2,11 +2,13 @@ import type { SettingsModuleRegistry, SettingsCategoryModule, SettingsAction } f
 import { accessModule } from './accessModule.js';
 import { promptModule } from './promptModule.js';
 import { channelModule } from './channelModule.js';
+import { confirmationModule } from './confirmationModule.js';
 
 export const settingsRegistry: SettingsModuleRegistry = {
 	access: accessModule,
 	prompt: promptModule,
 	channel: channelModule,
+	confirmations: confirmationModule,
 };
 
 export function getAllCategories(): Array<{ name: string; value: string }> {
