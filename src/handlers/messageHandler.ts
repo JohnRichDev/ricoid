@@ -444,6 +444,33 @@ function extractResponseText(response: any): string {
 	return responseText;
 }
 
+async function generateAIContent(
+	aiClient: GoogleGenAI,
+	modelName: string,
+	config: any,
+	conversation: any[],
+	message: Message,
+	allFunctionResults: Array<{ name: string; result: any }>,
+): Promise<{ hasMoreFunctionCalls: boolean; responseText: string }> {
+	const response = await aiClient.models.generateContent({
+		model: modelName,
+		config,
+		contents: conversation,
+	});
+
+	const { hasFunctionCalls: hasCurrentFunctionCalls } = await processFunctionCalls(
+		response,
+		message,
+		conversation,
+		allFunctionResults,
+	);
+
+	return {
+		hasMoreFunctionCalls: hasCurrentFunctionCalls,
+		responseText: hasCurrentFunctionCalls ? '' : extractResponseText(response),
+	};
+}
+
 async function processAIResponse(
 	aiClient: GoogleGenAI,
 	modelName: string,
@@ -459,21 +486,17 @@ async function processAIResponse(
 	while (round < maxRounds) {
 		round++;
 
-		const response = await aiClient.models.generateContent({
-			model: modelName,
+		const { hasMoreFunctionCalls, responseText: currentResponseText } = await generateAIContent(
+			aiClient,
+			modelName,
 			config,
-			contents: conversation,
-		});
-
-		const { hasFunctionCalls: hasCurrentFunctionCalls } = await processFunctionCalls(
-			response,
-			message,
 			conversation,
+			message,
 			allFunctionResults,
 		);
 
-		if (!hasCurrentFunctionCalls) {
-			responseText = extractResponseText(response);
+		if (!hasMoreFunctionCalls) {
+			responseText = currentResponseText;
 			break;
 		}
 	}
