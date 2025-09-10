@@ -82,21 +82,19 @@ export async function createConfirmation(
 			embeds: [embed],
 			components: [row],
 		});
+	} else if (interaction.replied || interaction.deferred) {
+		response = await interaction.followUp({
+			embeds: [embed],
+			components: [row],
+			ephemeral: true,
+		});
 	} else {
-		if (interaction.replied || interaction.deferred) {
-			response = await interaction.followUp({
-				embeds: [embed],
-				components: [row],
-				ephemeral: true,
-			});
-		} else {
-			const interactionResponse = await interaction.reply({
-				embeds: [embed],
-				components: [row],
-				ephemeral: true,
-			});
-			response = await interactionResponse.fetch();
-		}
+		const interactionResponse = await interaction.reply({
+			embeds: [embed],
+			components: [row],
+			ephemeral: true,
+		});
+		response = await interactionResponse.fetch();
 	}
 
 	try {
@@ -187,9 +185,10 @@ export async function createModerationConfirmation(
 		warn: '⚠️',
 	};
 
+	const reasonText = reason ? `**Reason:** ${reason}` : 'No reason provided.';
 	return createAIConfirmation(channelId, userId, {
 		title: `${actionEmojis[action] || '🛡️'} ${action.charAt(0).toUpperCase() + action.slice(1)} User`,
-		description: `Are you sure you want to **${action}** **${target}**?\n\n${reason ? `**Reason:** ${reason}` : 'No reason provided.'}\n\nThis moderation action will be logged.`,
+		description: `Are you sure you want to **${action}** **${target}**?\n\n${reasonText}\n\nThis moderation action will be logged.`,
 		dangerous: true,
 		confirmButtonLabel: action.charAt(0).toUpperCase() + action.slice(1),
 	});
@@ -202,9 +201,10 @@ export async function createBulkOperationConfirmation(
 	count: number,
 	details?: string,
 ): Promise<ConfirmationResult> {
+	const detailsText = details ? `\n\n${details}` : '';
 	return createAIConfirmation(channelId, userId, {
 		title: `📦 Bulk ${operation}`,
-		description: `Are you sure you want to perform **${operation}** on **${count} items**?${details ? `\n\n${details}` : ''}\n\nThis will affect multiple items at once.`,
+		description: `Are you sure you want to perform **${operation}** on **${count} items**?${detailsText}\n\nThis will affect multiple items at once.`,
 		dangerous: count > 10,
 		timeout: count > 20 ? 45000 : 30000,
 		confirmButtonLabel: operation.toLowerCase().includes('delete') ? 'Delete All' : 'Proceed',

@@ -107,46 +107,70 @@ function findChannelByName(guild: Guild, channelName: string, channelType?: numb
 	);
 }
 
-export async function findServer(serverId?: string): Promise<Guild> {
-	if (!serverId) {
-		if (discordClient.guilds.cache.size === 1) {
-			return discordClient.guilds.cache.first()!;
-		}
-		const serverList = Array.from(discordClient.guilds.cache.values())
-			.map((g) => `"${g.name}"`)
-			.join(', ');
-		throw new Error(`Multiple servers. Specify name/ID. Available: ${serverList}`);
+function handleNoServerId(): Guild {
+	if (discordClient.guilds.cache.size === 1) {
+		return discordClient.guilds.cache.first()!;
 	}
+	const serverList = Array.from(discordClient.guilds.cache.values())
+		.map((g) => `"${g.name}"`)
+		.join(', ');
+	throw new Error(`Multiple servers. Specify name/ID. Available: ${serverList}`);
+}
 
-	let server: Guild | undefined;
+async function tryFetchServerById(serverId: string): Promise<Guild | undefined> {
 	try {
-		server = await discordClient.guilds.fetch(serverId);
-	} catch {}
-	if (server) return server;
+		return await discordClient.guilds.fetch(serverId);
+	} catch {
+		return undefined;
+	}
+}
 
-	if (/^\d{17,19}$/.test(serverId)) {
-		for (const guild of discordClient.guilds.cache.values()) {
-			try {
-				const channel = await guild.channels.fetch(serverId);
-				if (channel) {
-					return guild;
-				}
-			} catch {}
-		}
+async function findServerByChannelId(serverId: string): Promise<Guild | undefined> {
+	if (!/^\d{17,19}$/.test(serverId)) {
+		return undefined;
 	}
 
+	for (const guild of discordClient.guilds.cache.values()) {
+		try {
+			const channel = await guild.channels.fetch(serverId);
+			if (channel) {
+				return guild;
+			}
+		} catch {}
+	}
+	return undefined;
+}
+
+function findServerByName(serverId: string): Guild {
 	const servers = discordClient.guilds.cache.filter((g) => g.name.toLowerCase() === serverId.toLowerCase());
+
 	if (servers.size === 0) {
 		const availableServers = Array.from(discordClient.guilds.cache.values())
 			.map((g) => `"${g.name}"`)
 			.join(', ');
 		throw new Error(`Server "${serverId}" not found. Available: ${availableServers}`);
 	}
+
 	if (servers.size > 1) {
 		const serverList = servers.map((g) => `${g.name} (ID: ${g.id})`).join(', ');
 		throw new Error(`Multiple servers found: ${serverList}. Use ID.`);
 	}
+
 	return servers.first()!;
+}
+
+export async function findServer(serverId?: string): Promise<Guild> {
+	if (!serverId) {
+		return handleNoServerId();
+	}
+
+	const serverById = await tryFetchServerById(serverId);
+	if (serverById) return serverById;
+
+	const serverByChannelId = await findServerByChannelId(serverId);
+	if (serverByChannelId) return serverByChannelId;
+
+	return findServerByName(serverId);
 }
 
 export async function findTextChannel(channelId: string, serverId?: string): Promise<TextChannel> {
@@ -341,7 +365,8 @@ export async function createVoiceChannel({
 			userLimit: userLimit || 0,
 		});
 
-		return `Voice channel "${voiceChannel.name}" created in ${guild.name}${parent ? ` under category "${parent.name}"` : ''}. ID: ${voiceChannel.id}`;
+		const categoryInfo = parent ? ` under category "${parent.name}"` : '';
+		return `Voice channel "${voiceChannel.name}" created in ${guild.name}${categoryInfo}. ID: ${voiceChannel.id}`;
 	} catch (error) {
 		throw new Error(`Failed to create voice channel: ${error}`);
 	}
@@ -430,6 +455,112 @@ export async function clearDiscordMessages({
 	}
 }
 
+function getChannelIcon(channelType: number): string {
+	switch (channelType) {
+		case 0:
+			return '💬';
+		case 2:
+			return '🔊';
+		default:
+			return '📄';
+	}
+}
+
+function getChannelTypeNumber(channelType?: string): number | undefined {
+	switch (channelType) {
+		case 'text':
+			return 0;
+		case 'voice':
+			return 2;
+		case 'category':
+			return 4;
+		default:
+			return undefined;
+	}
+}
+
+function getChannelTypeText(channelType: number): string {
+	switch (channelType) {
+		case 0:
+			return ' (chat)';
+		case 2:
+			return ' (vc)';
+		default:
+			return '';
+	}
+}
+
+function getChannelPosition(channel: any): number {
+	return 'position' in channel ? channel.position || 0 : 0;
+}
+
+function sortChannelsByPosition(channels: any[]): any[] {
+	return channels.sort((a, b) => getChannelPosition(a) - getChannelPosition(b));
+}
+
+function formatChannelLine(channel: any, indent = ''): string {
+	const icon = getChannelIcon(channel.type);
+	const typeText = getChannelTypeText(channel.type);
+	const position = getChannelPosition(channel);
+	return `${indent}${icon} ${channel.name}${typeText} (pos: ${position})\n`;
+}
+
+function formatCategoryChannels(channels: any[]): string {
+	if (channels.length === 0) {
+		return '  ↳ (empty category)\n';
+	}
+
+	return channels.map((channel) => formatChannelLine(channel, '  ↳ ')).join('');
+}
+
+function listCategoryChannels(guild: any, categoryChannel: any): string {
+	const categoryChannels = guild.channels.cache.filter((channel: any) => channel.parentId === categoryChannel.id);
+
+	const sortedChannels = sortChannelsByPosition(Array.from(categoryChannels.values()));
+
+	let result = `**${categoryChannel.name}**\n`;
+
+	if (sortedChannels.length === 0) {
+		result += '(No channels in this category)';
+	} else {
+		for (const channel of sortedChannels) {
+			const icon = getChannelIcon(channel.type);
+			const typeText = channel.type === 2 ? ' (vc)' : ' (chat)';
+			result += `↳ ${icon} ${channel.name}${typeText}\n`;
+		}
+	}
+
+	return result;
+}
+
+function listAllChannels(guild: any): string {
+	const allChannels = Array.from(guild.channels.cache.values());
+	const categories = sortChannelsByPosition(allChannels.filter((c: any) => c.type === 4));
+	const uncategorizedChannels = sortChannelsByPosition(allChannels.filter((c: any) => c.type !== 4 && !c.parentId));
+
+	let result = `**Channel Structure for ${guild.name}:**\n\n`;
+
+	if (uncategorizedChannels.length > 0) {
+		result += `**🏠 Uncategorized Channels:**\n`;
+		result += uncategorizedChannels.map((channel) => formatChannelLine(channel)).join('');
+		result += '\n';
+	}
+
+	for (const category of categories) {
+		const categoryPosition = getChannelPosition(category);
+		result += `**📁 ${category.name}** (pos: ${categoryPosition})\n`;
+
+		const categoryChannels = sortChannelsByPosition(
+			allChannels.filter((channel: any) => channel.parentId === category.id),
+		);
+
+		result += formatCategoryChannels(categoryChannels);
+		result += '\n';
+	}
+
+	return result.trim();
+}
+
 export async function listChannels({ server, category }: ListChannelsData): Promise<string> {
 	const guild = await findServer(server);
 
@@ -438,102 +569,17 @@ export async function listChannels({ server, category }: ListChannelsData): Prom
 
 		if (category) {
 			const categoryChannel = guild.channels.cache.find(
-				(channel) => channel.name.toLowerCase().includes(category.toLowerCase()) && channel.type === 4,
+				(channel: any) => channel.name.toLowerCase().includes(category.toLowerCase()) && channel.type === 4,
 			);
 
 			if (!categoryChannel) {
 				return `Category "${category}" not found in ${guild.name}.`;
 			}
 
-			const categoryChannels = guild.channels.cache
-				.filter((channel) => channel.parentId === categoryChannel.id)
-				.sort((a, b) => {
-					const aPos = 'position' in a ? (a as any).position || 0 : 0;
-					const bPos = 'position' in b ? (b as any).position || 0 : 0;
-					return aPos - bPos;
-				});
-
-			let result = `**${categoryChannel.name}**\n`;
-
-			for (const channel of categoryChannels.values()) {
-				let channelIcon;
-				if (channel.type === 0) channelIcon = '💬';
-				else if (channel.type === 2) channelIcon = '🔊';
-				else channelIcon = '📄';
-				const channelType = channel.type === 2 ? ' (vc)' : ' (chat)';
-				result += `↳ ${channelIcon} ${channel.name}${channelType}\n`;
-			}
-
-			return result || `**${categoryChannel.name}**\n(No channels in this category)`;
+			return listCategoryChannels(guild, categoryChannel);
 		}
 
-		const allChannels = Array.from(guild.channels.cache.values());
-
-		const categories = allChannels
-			.filter((c) => c.type === 4)
-			.sort((a, b) => {
-				const aPos = 'position' in a ? (a as any).position || 0 : 0;
-				const bPos = 'position' in b ? (b as any).position || 0 : 0;
-				return aPos - bPos;
-			});
-
-		const uncategorizedChannels = allChannels
-			.filter((c) => c.type !== 4 && !c.parentId)
-			.sort((a, b) => {
-				const aPos = 'position' in a ? (a as any).position || 0 : 0;
-				const bPos = 'position' in b ? (b as any).position || 0 : 0;
-				return aPos - bPos;
-			});
-
-		let result = `**Channel Structure for ${guild.name}:**\n\n`;
-
-		if (uncategorizedChannels.length > 0) {
-			result += `**🏠 Uncategorized Channels:**\n`;
-			for (const channel of uncategorizedChannels) {
-				let channelIcon;
-				if (channel.type === 0) channelIcon = '💬';
-				else if (channel.type === 2) channelIcon = '🔊';
-				else channelIcon = '📄';
-				let channelType = '';
-				if (channel.type === 2) channelType = ' (vc)';
-				else if (channel.type === 0) channelType = ' (chat)';
-				const position = 'position' in channel ? (channel as any).position || 0 : 0;
-				result += `${channelIcon} ${channel.name}${channelType} (pos: ${position})\n`;
-			}
-			result += '\n';
-		}
-
-		for (const category of categories) {
-			const categoryPosition = 'position' in category ? (category as any).position || 0 : 0;
-			result += `**📁 ${category.name}** (pos: ${categoryPosition})\n`;
-
-			const categoryChannels = allChannels
-				.filter((channel) => channel.parentId === category.id)
-				.sort((a, b) => {
-					const aPos = 'position' in a ? (a as any).position || 0 : 0;
-					const bPos = 'position' in b ? (b as any).position || 0 : 0;
-					return aPos - bPos;
-				});
-
-			if (categoryChannels.length === 0) {
-				result += `  ↳ (empty category)\n`;
-			} else {
-				for (const channel of categoryChannels) {
-					let channelIcon;
-					if (channel.type === 0) channelIcon = '💬';
-					else if (channel.type === 2) channelIcon = '🔊';
-					else channelIcon = '📄';
-					let channelType = '';
-					if (channel.type === 2) channelType = ' (vc)';
-					else if (channel.type === 0) channelType = ' (chat)';
-					const position = 'position' in channel ? (channel as any).position || 0 : 0;
-					result += `  ↳ ${channelIcon} ${channel.name}${channelType} (pos: ${position})\n`;
-				}
-			}
-			result += '\n';
-		}
-
-		return result.trim();
+		return listAllChannels(guild);
 	} catch (error) {
 		throw new Error(`Failed to list channels: ${error}`);
 	}
@@ -587,11 +633,7 @@ export async function reorderChannel({
 	try {
 		await guild.channels.fetch();
 
-		let channelTypeNum: number | undefined;
-		if (channelType === 'text') channelTypeNum = 0;
-		else if (channelType === 'voice') channelTypeNum = 2;
-		else if (channelType === 'category') channelTypeNum = 4;
-
+		const channelTypeNum = getChannelTypeNumber(channelType);
 		const channel = findChannelByName(guild, channelName, channelTypeNum);
 
 		if (!channel) {
@@ -606,18 +648,44 @@ export async function reorderChannel({
 			return `Cannot reorder this type of channel: "${channelName}". Only text channels, voice channels, and categories can be reordered.`;
 		}
 
-		const oldPosition = (channel as any).position;
+		const oldPosition = channel.position;
+		await channel.setPosition(position);
 
-		await (channel as any).setPosition(position);
+		const channelTypeDisplay = getChannelTypeDisplayName(channel.type);
+		const capitalizedType = channelTypeDisplay.charAt(0).toUpperCase() + channelTypeDisplay.slice(1);
 
-		let channelTypeDisplay = 'channel';
-		if (channel.type === 0) channelTypeDisplay = 'text channel';
-		else if (channel.type === 2) channelTypeDisplay = 'voice channel';
-		else if (channel.type === 4) channelTypeDisplay = 'category';
-
-		return `${channelTypeDisplay.charAt(0).toUpperCase() + channelTypeDisplay.slice(1)} "${channel.name}" moved from position ${oldPosition} to position ${position} in ${guild.name}.`;
+		return `${capitalizedType} "${channel.name}" moved from position ${oldPosition} to position ${position} in ${guild.name}.`;
 	} catch (error) {
 		throw new Error(`Failed to reorder channel: ${error}`);
+	}
+}
+
+async function processChannelReorder(guild: any, channelInfo: any, errors: string[], results: string[]): Promise<void> {
+	const channelTypeNum = getChannelTypeNumber(channelInfo.type);
+	const channel = findChannelByName(guild, channelInfo.name, channelTypeNum);
+
+	if (!channel) {
+		errors.push(`Channel "${channelInfo.name}" not found`);
+		return;
+	}
+
+	try {
+		if (!('position' in channel) || !('setPosition' in channel)) {
+			errors.push(
+				`Cannot reorder channel "${channelInfo.name}": Only text channels, voice channels, and categories can be reordered`,
+			);
+			return;
+		}
+
+		const oldPosition = channel.position;
+		await channel.setPosition(channelInfo.position);
+
+		const channelTypeDisplay = getChannelTypeDisplayName(channel.type);
+		const capitalizedType = channelTypeDisplay.charAt(0).toUpperCase() + channelTypeDisplay.slice(1);
+
+		results.push(`${capitalizedType} "${channel.name}" moved from position ${oldPosition} to ${channelInfo.position}`);
+	} catch (error) {
+		errors.push(`Failed to move "${channelInfo.name}": ${error}`);
 	}
 }
 
@@ -631,44 +699,7 @@ export async function reorderChannels({ server, channels }: ReorderChannelsData)
 		const errors: string[] = [];
 
 		for (const channelInfo of channels) {
-			let channelTypeNum: number | undefined;
-			if (channelInfo.type === 'text') channelTypeNum = 0;
-			else if (channelInfo.type === 'voice') channelTypeNum = 2;
-			else if (channelInfo.type === 'category') channelTypeNum = 4;
-
-			const channel = findChannelByName(guild, channelInfo.name, channelTypeNum);
-
-			if (!channel) {
-				errors.push(`Channel "${channelInfo.name}" not found`);
-				continue;
-			}
-
-			try {
-				if (!('position' in channel) || !('setPosition' in channel)) {
-					errors.push(
-						`Cannot reorder channel "${channelInfo.name}": Only text channels, voice channels, and categories can be reordered`,
-					);
-					continue;
-				}
-
-				const oldPosition = (channel as any).position;
-				await (channel as any).setPosition(channelInfo.position);
-
-				const channelTypeDisplay =
-					channel.type === 0
-						? 'text channel'
-						: channel.type === 2
-							? 'voice channel'
-							: channel.type === 4
-								? 'category'
-								: 'channel';
-
-				results.push(
-					`${channelTypeDisplay.charAt(0).toUpperCase() + channelTypeDisplay.slice(1)} "${channel.name}" moved from position ${oldPosition} to ${channelInfo.position}`,
-				);
-			} catch (error) {
-				errors.push(`Failed to move "${channelInfo.name}": ${error}`);
-			}
+			await processChannelReorder(guild, channelInfo, errors, results);
 		}
 
 		let response = `Bulk channel reordering completed in ${guild.name}.\n\n`;
@@ -1091,11 +1122,12 @@ export async function moderateUser({ server, user, action, reason, duration }: M
 				await guild.members.ban(member, { reason: reason || 'No reason provided' });
 				return `Banned ${member.user.tag} from ${guild.name}.${reasonText}`;
 
-			case 'timeout':
+			case 'timeout': {
 				if (!duration) return 'Duration is required for timeout action.';
 				const timeoutMs = duration * 60 * 1000;
 				await member.timeout(timeoutMs, reason || 'No reason provided');
 				return `Timed out ${member.user.tag} for ${duration} minutes in ${guild.name}.${reasonText}`;
+			}
 
 			case 'untimeout':
 				await member.timeout(null, reason || 'No reason provided');
@@ -1199,52 +1231,73 @@ export async function createPoll({ server, channel, question, options, duration 
 	}
 }
 
+function playRockPaperScissors(userChoice?: string): string {
+	const choices = ['rock', 'paper', 'scissors'];
+	const botChoice = choices[Math.floor(Math.random() * choices.length)];
+
+	if (!userChoice || !choices.includes(userChoice.toLowerCase())) {
+		return `Invalid choice! Please choose: ${choices.join(', ')}`;
+	}
+
+	const user = userChoice.toLowerCase();
+	let result = `You chose: ${user}\nBot chose: ${botChoice}\n\n`;
+
+	if (user === botChoice) {
+		result += "It's a tie!";
+	} else if (
+		(user === 'rock' && botChoice === 'scissors') ||
+		(user === 'paper' && botChoice === 'rock') ||
+		(user === 'scissors' && botChoice === 'paper')
+	) {
+		result += 'You win!';
+	} else {
+		result += 'Bot wins!';
+	}
+
+	return result;
+}
+
+function playCoinFlip(): string {
+	const coinResult = Math.random() < 0.5 ? 'heads' : 'tails';
+	return `Coin flip result: **${coinResult.toUpperCase()}**`;
+}
+
+function playDice(): string {
+	const diceRoll = Math.floor(Math.random() * 6) + 1;
+	return `Dice roll result: **${diceRoll}**`;
+}
+
+function playNumberGuess(userChoice?: string): string {
+	const targetNumber = Math.floor(Math.random() * 100) + 1;
+	const guess = parseInt(userChoice || '0');
+
+	if (isNaN(guess)) {
+		return 'Please provide a valid number to guess!';
+	}
+
+	if (guess === targetNumber) {
+		return `Correct! The number was ${targetNumber}`;
+	} else if (guess < targetNumber) {
+		return `Too low! Try a higher number.`;
+	} else {
+		return `Too high! Try a lower number.`;
+	}
+}
+
 export async function playGame({ type, userChoice }: GameData): Promise<string> {
 	try {
-		if (type === 'rps') {
-			const choices = ['rock', 'paper', 'scissors'];
-			const botChoice = choices[Math.floor(Math.random() * choices.length)];
-			if (!userChoice || !choices.includes(userChoice.toLowerCase())) {
-				return `Invalid choice! Please choose: ${choices.join(', ')}`;
-			}
-			const user = userChoice.toLowerCase();
-			let result = `You chose: ${user}\nBot chose: ${botChoice}\n\n`;
-			if (user === botChoice) {
-				result += "It's a tie!";
-			} else if (
-				(user === 'rock' && botChoice === 'scissors') ||
-				(user === 'paper' && botChoice === 'rock') ||
-				(user === 'scissors' && botChoice === 'paper')
-			) {
-				result += 'You win!';
-			} else {
-				result += 'Bot wins!';
-			}
-			return result;
+		switch (type) {
+			case 'rps':
+				return playRockPaperScissors(userChoice);
+			case 'coinflip':
+				return playCoinFlip();
+			case 'dice':
+				return playDice();
+			case 'number_guess':
+				return playNumberGuess(userChoice);
+			default:
+				return `Unknown game type. Available games: rps, coinflip, dice, number_guess`;
 		}
-		if (type === 'coinflip') {
-			const coinResult = Math.random() < 0.5 ? 'heads' : 'tails';
-			return `Coin flip result: **${coinResult.toUpperCase()}**`;
-		}
-		if (type === 'dice') {
-			const diceRoll = Math.floor(Math.random() * 6) + 1;
-			return `Dice roll result: **${diceRoll}**`;
-		}
-		if (type === 'number_guess') {
-			const targetNumber = Math.floor(Math.random() * 100) + 1;
-			const guess = parseInt(userChoice || '0');
-			if (isNaN(guess)) {
-				return 'Please provide a valid number to guess!';
-			}
-			if (guess === targetNumber) {
-				return `Correct! The number was ${targetNumber}`;
-			} else if (guess < targetNumber) {
-				return `Too low! Try a higher number.`;
-			} else {
-				return `Too high! Try a lower number.`;
-			}
-		}
-		return `Unknown game type. Available games: rps, coinflip, dice, number_guess`;
 	} catch (error) {
 		throw new Error(`Failed to play game: ${error}`);
 	}
