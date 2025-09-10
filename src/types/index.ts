@@ -36,9 +36,11 @@ export interface CategoryData extends ServerIdentifier {
 	categoryName: string;
 }
 
+export type ChannelType = 'text' | 'voice' | 'category';
+
 export interface DeleteChannelData extends ServerIdentifier {
 	channelName: string;
-	channelType?: 'text' | 'voice' | 'category';
+	channelType?: ChannelType;
 }
 
 export interface DeleteAllChannelsData extends ServerIdentifier {

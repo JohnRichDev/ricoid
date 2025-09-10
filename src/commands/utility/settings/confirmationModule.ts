@@ -71,7 +71,7 @@ function formatConfirmationsList(confirmationSettings: ConfirmationSettings): st
 	for (const [group, types] of Object.entries(groupedTypes)) {
 		lines.push(`\n**${group}:**`);
 		for (const type of types) {
-			const status = confirmationSettings.types[type as ConfirmationType] ? '✅' : '❌';
+			const status = confirmationSettings.types[type] ? '✅' : '❌';
 			const displayName = type.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
 			lines.push(`${status} ${displayName}`);
 		}
