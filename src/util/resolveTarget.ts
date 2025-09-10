@@ -5,43 +5,67 @@ export type ResolvedTarget =
 	| { kind: 'role'; role: Role }
 	| { kind: 'raw'; value: string };
 
+async function tryResolveMentionUser(guild: Guild, raw: string): Promise<GuildMember | null> {
+	const mentionUser = raw.match(/^<@!?(\d+)>$/);
+	if (!mentionUser) return null;
+
+	const id = mentionUser[1];
+	return await guild.members.fetch(id).catch(() => null);
+}
+
+async function tryResolveMentionRole(guild: Guild, raw: string): Promise<Role | null> {
+	const mentionRole = raw.match(/^<@&(\d+)>$/);
+	if (!mentionRole) return null;
+
+	const id = mentionRole[1];
+	return guild.roles.cache.get(id) ?? (await guild.roles.fetch(id).catch(() => null));
+}
+
+async function tryResolveById(guild: Guild, raw: string): Promise<GuildMember | Role | null> {
+	if (!/^\d{17,19}$/.test(raw)) return null;
+
+	const [member, role] = await Promise.all([
+		guild.members.fetch(raw).catch(() => null),
+		guild.roles.fetch(raw).catch(() => null),
+	]);
+
+	return member || role || null;
+}
+
+function tryResolveByName(guild: Guild, raw: string): GuildMember | Role | null {
+	const lowercaseRaw = raw.toLowerCase();
+
+	const byName = guild.members.cache.find((m) => m.user.username.toLowerCase() === lowercaseRaw);
+	if (byName) return byName;
+
+	const byRole = guild.roles.cache.find((r) => r.name.toLowerCase() === lowercaseRaw);
+	return byRole || null;
+}
+
 export async function resolveTarget(guild: Guild | null | undefined, raw: string): Promise<ResolvedTarget> {
 	raw = raw.trim();
 
-	// user mention <@123> or <@!123>
-	const mentionUser = raw.match(/^<@!?(\d+)>$/);
-	if (mentionUser && guild) {
-		const id = mentionUser[1];
-		const member = await guild.members.fetch(id).catch(() => null);
-		if (member) return { kind: 'member', member };
+	if (!guild) {
+		return { kind: 'raw', value: raw };
 	}
 
-	// role mention <@&123>
-	const mentionRole = raw.match(/^<@&(\d+)>$/);
-	if (mentionRole && guild) {
-		const id = mentionRole[1];
-		const role = guild.roles.cache.get(id) ?? (await guild.roles.fetch(id).catch(() => null));
-		if (role) return { kind: 'role', role };
+	const mentionUser = await tryResolveMentionUser(guild, raw);
+	if (mentionUser) return { kind: 'member', member: mentionUser };
+
+	const mentionRole = await tryResolveMentionRole(guild, raw);
+	if (mentionRole) return { kind: 'role', role: mentionRole };
+
+	const byId = await tryResolveById(guild, raw);
+	if (byId) {
+		return 'user' in byId ? { kind: 'member', member: byId as GuildMember } : { kind: 'role', role: byId as Role };
 	}
 
-	// plain id (member or role)
-	if (/^\d{17,19}$/.test(raw) && guild) {
-		const [member, role] = await Promise.all([
-			guild.members.fetch(raw).catch(() => null),
-			guild.roles.fetch(raw).catch(() => null),
-		]);
-		if (member) return { kind: 'member', member };
-		if (role) return { kind: 'role', role };
+	const byName = tryResolveByName(guild, raw);
+	if (byName) {
+		return 'user' in byName
+			? { kind: 'member', member: byName as GuildMember }
+			: { kind: 'role', role: byName as Role };
 	}
 
-	// exact username or role name
-	if (guild) {
-		const byName = guild.members.cache.find((m) => m.user.username.toLowerCase() === raw.toLowerCase());
-		if (byName) return { kind: 'member', member: byName };
-		const byRole = guild.roles.cache.find((r) => r.name.toLowerCase() === raw.toLowerCase());
-		if (byRole) return { kind: 'role', role: byRole };
-	}
-
-	// fallback to raw string
 	return { kind: 'raw', value: raw };
 }

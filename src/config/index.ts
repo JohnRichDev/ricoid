@@ -30,7 +30,7 @@ export function getCachedSettings(): BotSettings {
 	if (!cachedSettings) {
 		cachedSettings = loadSettings();
 	}
-	return cachedSettings!;
+	return cachedSettings;
 }
 
 export const settings = loadSettings();

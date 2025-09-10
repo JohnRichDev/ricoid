@@ -292,10 +292,11 @@ async function sendResponseMessage(
 				await targetChannel.send(responseText);
 			}
 		}
-	} else {
-		if (targetChannel?.isTextBased() && 'send' in targetChannel) {
-			await targetChannel.send(responseText);
-		}
+		return;
+	}
+
+	if (targetChannel?.isTextBased() && 'send' in targetChannel) {
+		await targetChannel.send(responseText);
 	}
 }
 
