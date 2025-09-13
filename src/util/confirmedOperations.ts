@@ -143,9 +143,12 @@ export async function moderateUser(args: ModerationData): Promise<string> {
 		timeout: 'timeout',
 	};
 
+	const reasonText = args.reason ? `**Reason:** ${args.reason}` : 'No reason provided.';
+	const description = `Are you sure you want to **${actionDescriptions[args.action]}** **${args.user}**?\n\n${reasonText}\n\nThis moderation action will be logged.`;
+
 	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {
 		title: `${actionEmojis[args.action]} ${args.action.charAt(0).toUpperCase() + args.action.slice(1)} User`,
-		description: `Are you sure you want to **${actionDescriptions[args.action]}** **${args.user}**?\n\n${args.reason ? `**Reason:** ${args.reason}` : 'No reason provided.'}\n\nThis moderation action will be logged.`,
+		description,
 		dangerous: true,
 		confirmButtonLabel: args.action.charAt(0).toUpperCase() + args.action.slice(1),
 	});
@@ -231,9 +234,13 @@ export async function createRole(args: CreateRoleData): Promise<string> {
 		return await originalCreateRole(args);
 	}
 
+	const colorText = args.color ? `\n**Color:** ${args.color}` : '';
+	const permissionsText = args.permissions?.length ? `\n**Permissions:** ${args.permissions.join(', ')}` : '';
+	const description = `Are you sure you want to create the role **${args.name}**?${colorText}${permissionsText}\n\nThis will create a new role in the server.`;
+
 	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {
 		title: '✨ Create Role',
-		description: `Are you sure you want to create the role **${args.name}**?${args.color ? `\n**Color:** ${args.color}` : ''}${args.permissions?.length ? `\n**Permissions:** ${args.permissions.join(', ')}` : ''}\n\nThis will create a new role in the server.`,
+		description,
 		dangerous: false,
 		confirmButtonLabel: 'Create Role',
 	});
@@ -259,10 +266,11 @@ export async function editRole(args: EditRoleData): Promise<string> {
 	if (args.newName) changes.push(`Name: **${args.newName}**`);
 	if (args.newColor) changes.push(`Color: **${args.newColor}**`);
 	const changesText = changes.length ? `\n**Changes:**\n${changes.map((c) => `• ${c}`).join('\n')}` : '';
+	const description = `Are you sure you want to edit the role **${args.roleName}**?${changesText}\n\nThis will modify the role settings.`;
 
 	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {
 		title: '✏️ Edit Role',
-		description: `Are you sure you want to edit the role **${args.roleName}**?${changesText}\n\nThis will modify the role settings.`,
+		description,
 		dangerous: false,
 		confirmButtonLabel: 'Edit Role',
 	});

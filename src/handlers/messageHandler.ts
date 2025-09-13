@@ -428,18 +428,31 @@ async function processFunctionCalls(
 	return { hasFunctionCalls: true, functionResults };
 }
 
-function extractResponseText(response: any): string {
-	let responseText = '';
-	if (response.candidates) {
-		for (const candidate of response.candidates) {
-			if (candidate.content?.parts) {
-				for (const part of candidate.content.parts) {
-					if (part.text && typeof part.text === 'string') {
-						responseText += part.text;
-					}
-				}
-			}
+function extractTextFromParts(parts: any[]): string {
+	let text = '';
+	for (const part of parts) {
+		if (part.text && typeof part.text === 'string') {
+			text += part.text;
 		}
+	}
+	return text;
+}
+
+function extractTextFromCandidate(candidate: any): string {
+	if (!candidate.content?.parts) {
+		return '';
+	}
+	return extractTextFromParts(candidate.content.parts);
+}
+
+function extractResponseText(response: any): string {
+	if (!response.candidates) {
+		return '';
+	}
+
+	let responseText = '';
+	for (const candidate of response.candidates) {
+		responseText += extractTextFromCandidate(candidate);
 	}
 	return responseText;
 }

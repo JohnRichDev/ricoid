@@ -61,21 +61,21 @@ export interface MoveChannelData extends ServerIdentifier {
 export interface ReorderChannelData extends ServerIdentifier {
 	channelName: string;
 	position: number;
-	channelType?: 'text' | 'voice' | 'category';
+	channelType?: ChannelType;
 }
 
 export interface ReorderChannelsData extends ServerIdentifier {
 	channels: Array<{
 		name: string;
 		position: number;
-		type?: 'text' | 'voice' | 'category';
+		type?: ChannelType;
 	}>;
 }
 
 export interface RenameChannelData extends ServerIdentifier {
 	oldName: string;
 	newName: string;
-	channelType?: 'text' | 'voice' | 'category';
+	channelType?: ChannelType;
 }
 
 export interface SetChannelTopicData extends ServerIdentifier {
@@ -97,7 +97,7 @@ export interface SetChannelPermissionsData extends ServerIdentifier {
 	roleName: string;
 	allow?: string[];
 	deny?: string[];
-	channelType?: 'text' | 'voice' | 'category';
+	channelType?: ChannelType;
 }
 export interface UserInfoData extends ServerIdentifier {
 	user: string;
