@@ -9,9 +9,12 @@ export class ConfirmationTemplates {
 		itemType: string = 'item',
 		additionalInfo?: string,
 	): Promise<ConfirmationResult> {
+		const additionalInfoText = additionalInfo ? `\n\n${additionalInfo}` : '';
+		const description = `Are you sure you want to delete **${itemName}**?${additionalInfoText}\n\nThis action cannot be undone.`;
+
 		return createAIConfirmation(channelId, userId, {
 			title: `🗑️ Delete ${itemType.charAt(0).toUpperCase() + itemType.slice(1)}`,
-			description: `Are you sure you want to delete **${itemName}**?${additionalInfo ? `\n\n${additionalInfo}` : ''}\n\nThis action cannot be undone.`,
+			description,
 			dangerous: true,
 			confirmButtonLabel: 'Delete',
 		});
@@ -77,16 +80,24 @@ export class ConfirmationTemplates {
 		const emoji = isDestructive ? '🚨' : '📦';
 		const urgencyText = count > 20 ? '\n\n⚠️ **This is a large operation!**' : '';
 
+		const timeout = count > 20 ? 45000 : count > 10 ? 40000 : 30000;
+
+		let confirmButtonLabel: string;
+		if (isDestructive) {
+			confirmButtonLabel = operation.toLowerCase().includes('delete') ? 'Delete All' : 'Confirm';
+		} else {
+			confirmButtonLabel = 'Create All';
+		}
+
+		const detailsText = details ? `\n\n**Details:** ${details}` : '';
+		const description = `Are you sure you want to perform **${operation}** on **${count} items**?${detailsText}${urgencyText}\n\nThis will affect multiple items at once.`;
+
 		return createAIConfirmation(channelId, userId, {
 			title: `${emoji} Bulk ${operation}`,
-			description: `Are you sure you want to perform **${operation}** on **${count} items**?${details ? `\n\n**Details:** ${details}` : ''}${urgencyText}\n\nThis will affect multiple items at once.`,
+			description,
 			dangerous: isDestructive || count > 20,
-			timeout: count > 20 ? 45000 : count > 10 ? 40000 : 30000,
-			confirmButtonLabel: isDestructive
-				? operation.toLowerCase().includes('delete')
-					? 'Delete All'
-					: 'Confirm'
-				: 'Create All',
+			timeout,
+			confirmButtonLabel,
 		});
 	}
 
