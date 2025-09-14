@@ -80,7 +80,14 @@ export class ConfirmationTemplates {
 		const emoji = isDestructive ? '🚨' : '📦';
 		const urgencyText = count > 20 ? '\n\n⚠️ **This is a large operation!**' : '';
 
-		const timeout = count > 20 ? 45000 : count > 10 ? 40000 : 30000;
+		let timeout: number;
+		if (count > 20) {
+			timeout = 45000;
+		} else if (count > 10) {
+			timeout = 40000;
+		} else {
+			timeout = 30000;
+		}
 
 		let confirmButtonLabel: string;
 		if (isDestructive) {
