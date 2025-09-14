@@ -19,7 +19,7 @@ async function ensureDirAndFile() {
 	try {
 		await mkdir(dir, { recursive: true });
 	} catch (e) {
-		// ignore
+		console.warn('Failed to create directory:', dir, e);
 	}
 
 	try {
@@ -42,7 +42,7 @@ export async function writeSettings(settings: StoredSettings): Promise<void> {
 	try {
 		await mkdir(dirname(filePath), { recursive: true });
 	} catch (e) {
-		// ignore
+		console.warn('Failed to create directory for settings file:', e);
 	}
 	await writeFile(filePath, JSON.stringify(settings, null, 2), 'utf8');
 }
@@ -75,7 +75,7 @@ async function ensureConversationFile() {
 	try {
 		await mkdir(dir, { recursive: true });
 	} catch (e) {
-		// ignore
+		console.warn('Failed to create conversation directory:', dir, e);
 	}
 
 	try {
@@ -98,7 +98,7 @@ export async function writeConversations(conversations: ConversationStore): Prom
 	try {
 		await mkdir(dirname(conversationFilePath), { recursive: true });
 	} catch (e) {
-		// ignore
+		console.warn('Failed to create directory for conversation file:', e);
 	}
 	await writeFile(conversationFilePath, JSON.stringify(conversations, null, 2), 'utf8');
 }
