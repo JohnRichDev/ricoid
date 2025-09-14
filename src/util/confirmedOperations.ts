@@ -265,7 +265,8 @@ export async function editRole(args: EditRoleData): Promise<string> {
 	const changes: string[] = [];
 	if (args.newName) changes.push(`Name: **${args.newName}**`);
 	if (args.newColor) changes.push(`Color: **${args.newColor}**`);
-	const changesText = changes.length ? `\n**Changes:**\n${changes.map((c) => `• ${c}`).join('\n')}` : '';
+	const changeItems = changes.map((c) => `• ${c}`).join('\n');
+	const changesText = changes.length ? `\n**Changes:**\n${changeItems}` : '';
 	const description = `Are you sure you want to edit the role **${args.roleName}**?${changesText}\n\nThis will modify the role settings.`;
 
 	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {

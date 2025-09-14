@@ -6,7 +6,8 @@ export type ResolvedTarget =
 	| { kind: 'raw'; value: string };
 
 async function tryResolveMentionUser(guild: Guild, raw: string): Promise<GuildMember | null> {
-	const mentionUser = raw.match(/^<@!?(\d+)>$/);
+	const userMentionPattern = /^<@!?(\d+)>$/;
+	const mentionUser = userMentionPattern.exec(raw);
 	if (!mentionUser) return null;
 
 	const id = mentionUser[1];
@@ -14,7 +15,8 @@ async function tryResolveMentionUser(guild: Guild, raw: string): Promise<GuildMe
 }
 
 async function tryResolveMentionRole(guild: Guild, raw: string): Promise<Role | null> {
-	const mentionRole = raw.match(/^<@&(\d+)>$/);
+	const roleMentionPattern = /^<@&(\d+)>$/;
+	const mentionRole = roleMentionPattern.exec(raw);
 	if (!mentionRole) return null;
 
 	const id = mentionRole[1];
