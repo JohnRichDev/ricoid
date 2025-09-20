@@ -109,9 +109,9 @@ export const accessModule: SettingsCategoryModule = {
 
 		switch (action) {
 			case 'add':
-				return handleAddAction(interaction, target!, updatedSettings);
+				return handleAddAction(interaction, target as string, updatedSettings);
 			case 'remove':
-				return handleRemoveAction(interaction, target!, updatedSettings);
+				return handleRemoveAction(interaction, target as string, updatedSettings);
 			case 'view':
 				return handleViewAction(updatedSettings);
 			default:
