@@ -35,6 +35,7 @@ async function validateAndFetchChannel(
 
 		return { channel, error: null };
 	} catch (error) {
+		console.warn('Failed to validate channel:', channelId, error);
 		return { channel: null, error: 'Invalid channel ID or the bot cannot access that channel.' };
 	}
 }
@@ -82,6 +83,7 @@ async function handleViewAction(
 			return createResult(settings, `Current channel: <#${channelId}>`);
 		}
 	} catch (error) {
+		console.warn('Failed to fetch configured channel:', channelId, error);
 		return createResult(settings, `Channel is set to \`${channelId}\` but the channel is no longer accessible.`);
 	}
 
