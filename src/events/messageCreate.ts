@@ -17,7 +17,13 @@ export default {
 
 		console.log(`Message received from ${message.author.tag}: ${message.content}`);
 
-		const aiClient = createAIClient(process.env.GEMINI_API_KEY!);
+		const apiKey = process.env.GEMINI_API_KEY;
+		if (!apiKey) {
+			console.error('GEMINI_API_KEY environment variable is not set');
+			return;
+		}
+
+		const aiClient = createAIClient(apiKey);
 		await handleMessage(message, aiClient);
 	},
 } satisfies Event<Events.MessageCreate>;
