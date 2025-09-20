@@ -136,7 +136,9 @@ async function findServerByChannelId(serverId: string): Promise<Guild | undefine
 			if (channel) {
 				return guild;
 			}
-		} catch {}
+		} catch (error) {
+			console.debug(`Could not fetch channel ${serverId} from guild ${guild.name}:`, error);
+		}
 	}
 	return undefined;
 }
@@ -1528,8 +1530,8 @@ export async function findSuitableChannel(guildId: string): Promise<TextChannel 
 
 		const firstTextChannel = guild.channels.cache.find(
 			(channel) => channel.type === 0 && channel.permissionsFor(guild.members.me!)?.has('SendMessages'),
-		) as TextChannel;
-		if (firstTextChannel) return firstTextChannel;
+		);
+		if (firstTextChannel) return firstTextChannel as TextChannel;
 
 		return null;
 	} catch (error) {
@@ -1698,8 +1700,12 @@ export async function listRoles({ server }: ListRolesData): Promise<string> {
 export async function addEmoji({ server, name, imageUrl }: EmojiData): Promise<string> {
 	const guild = await findServer(server);
 
+	if (!imageUrl) {
+		throw new Error('Image URL is required to add emoji');
+	}
+
 	try {
-		const emoji = await guild.emojis.create({ attachment: imageUrl!, name });
+		const emoji = await guild.emojis.create({ attachment: imageUrl, name });
 		return `Emoji "${emoji.name}" added with ID: ${emoji.id}`;
 	} catch (error) {
 		throw new Error(`Failed to add emoji: ${error}`);
