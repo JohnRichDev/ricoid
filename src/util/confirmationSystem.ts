@@ -28,6 +28,8 @@ export interface ConfirmationResult {
 	interaction?: ButtonInteraction;
 }
 
+type RequiredConfirmationConfig = Required<ConfirmationConfig>;
+
 const DEFAULT_CONFIG: Partial<ConfirmationConfig> = {
 	confirmButtonLabel: 'Confirm',
 	cancelButtonLabel: 'Cancel',
@@ -50,28 +52,28 @@ export async function createConfirmation(
 	interaction: ChatInputCommandInteraction | Message,
 	config: ConfirmationConfig,
 ): Promise<ConfirmationResult> {
-	const finalConfig = {
+	const finalConfig: RequiredConfirmationConfig = {
 		...DEFAULT_CONFIG,
 		...(config.dangerous ? DANGEROUS_CONFIG : {}),
 		...config,
-	};
+	} as RequiredConfirmationConfig;
 
 	const embed = new EmbedBuilder()
 		.setTitle(finalConfig.title)
 		.setDescription(finalConfig.description)
-		.setColor(finalConfig.color!)
+		.setColor(finalConfig.color)
 		.setTimestamp()
-		.setFooter({ text: `This confirmation will expire in ${finalConfig.timeout! / 1000} seconds` });
+		.setFooter({ text: `This confirmation will expire in ${finalConfig.timeout / 1000} seconds` });
 
 	const confirmButton = new ButtonBuilder()
 		.setCustomId('confirm')
-		.setLabel(finalConfig.confirmButtonLabel!)
-		.setStyle(finalConfig.confirmButtonStyle!);
+		.setLabel(finalConfig.confirmButtonLabel)
+		.setStyle(finalConfig.confirmButtonStyle);
 
 	const cancelButton = new ButtonBuilder()
 		.setCustomId('cancel')
-		.setLabel(finalConfig.cancelButtonLabel!)
-		.setStyle(finalConfig.cancelButtonStyle!);
+		.setLabel(finalConfig.cancelButtonLabel)
+		.setStyle(finalConfig.cancelButtonStyle);
 
 	const row = new ActionRowBuilder<ButtonBuilder>().addComponents(confirmButton, cancelButton);
 
@@ -100,7 +102,7 @@ export async function createConfirmation(
 	try {
 		const buttonInteraction = await response.awaitMessageComponent({
 			componentType: ComponentType.Button,
-			time: finalConfig.timeout!,
+			time: finalConfig.timeout,
 			filter: (i) => {
 				const userId = interaction instanceof Message ? interaction.author.id : interaction.user.id;
 				return i.user.id === userId;
@@ -222,28 +224,28 @@ export async function createAIConfirmation(
 		throw new Error('Invalid channel for confirmation');
 	}
 
-	const finalConfig = {
+	const finalConfig: RequiredConfirmationConfig = {
 		...DEFAULT_CONFIG,
 		...(config.dangerous ? DANGEROUS_CONFIG : {}),
 		...config,
-	};
+	} as RequiredConfirmationConfig;
 
 	const embed = new EmbedBuilder()
 		.setTitle(finalConfig.title)
 		.setDescription(finalConfig.description)
-		.setColor(finalConfig.color!)
+		.setColor(finalConfig.color)
 		.setTimestamp()
-		.setFooter({ text: `This confirmation will expire in ${finalConfig.timeout! / 1000} seconds` });
+		.setFooter({ text: `This confirmation will expire in ${finalConfig.timeout / 1000} seconds` });
 
 	const confirmButton = new ButtonBuilder()
 		.setCustomId('confirm')
-		.setLabel(finalConfig.confirmButtonLabel!)
-		.setStyle(finalConfig.confirmButtonStyle!);
+		.setLabel(finalConfig.confirmButtonLabel)
+		.setStyle(finalConfig.confirmButtonStyle);
 
 	const cancelButton = new ButtonBuilder()
 		.setCustomId('cancel')
-		.setLabel(finalConfig.cancelButtonLabel!)
-		.setStyle(finalConfig.cancelButtonStyle!);
+		.setLabel(finalConfig.cancelButtonLabel)
+		.setStyle(finalConfig.cancelButtonStyle);
 
 	const row = new ActionRowBuilder<ButtonBuilder>().addComponents(confirmButton, cancelButton);
 
@@ -255,7 +257,7 @@ export async function createAIConfirmation(
 	try {
 		const buttonInteraction = await response.awaitMessageComponent({
 			componentType: ComponentType.Button,
-			time: finalConfig.timeout!,
+			time: finalConfig.timeout,
 			filter: (i: ButtonInteraction) => i.user.id === userId,
 		});
 
