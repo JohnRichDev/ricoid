@@ -8,12 +8,20 @@ import { appConfig } from '../config/app.js';
 const commands = await loadCommands(path.join(process.cwd(), appConfig.paths.commands));
 const commandData = [...commands.values()].map((command) => command.data);
 
-const rest = new REST({ version: appConfig.discord.restVersion }).setToken(process.env[appConfig.env.discordToken]!);
+const discordToken = process.env[appConfig.env.discordToken];
+const applicationId = process.env[appConfig.env.applicationId];
+
+if (!discordToken) {
+	throw new Error(`Missing required environment variable: ${appConfig.env.discordToken}`);
+}
+
+if (!applicationId) {
+	throw new Error(`Missing required environment variable: ${appConfig.env.applicationId}`);
+}
+
+const rest = new REST({ version: appConfig.discord.restVersion }).setToken(discordToken);
 const api = new API(rest);
 
-const result = await api.applicationCommands.bulkOverwriteGlobalCommands(
-	process.env[appConfig.env.applicationId]!,
-	commandData,
-);
+const result = await api.applicationCommands.bulkOverwriteGlobalCommands(applicationId, commandData);
 
 console.log(`Successfully registered ${result.length} commands.`);
