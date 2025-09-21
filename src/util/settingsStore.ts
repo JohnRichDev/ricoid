@@ -18,13 +18,13 @@ async function ensureDirAndFile() {
 
 	try {
 		await mkdir(dir, { recursive: true });
-	} catch (e) {
-		console.warn('Failed to create directory:', dir, e);
+	} catch (error) {
+		console.warn('Failed to create directory:', dir, error);
 	}
 
 	try {
 		await access(filePath);
-	} catch (e) {
+	} catch (error) {
 		await writeFile(filePath, JSON.stringify({}, null, 2), 'utf8');
 	}
 }
@@ -33,7 +33,8 @@ export async function readSettings(): Promise<StoredSettings> {
 	try {
 		const raw = await readFile(filePath, 'utf8');
 		return JSON.parse(raw) as StoredSettings;
-	} catch (e) {
+	} catch (error) {
+		console.warn('Failed to read settings file, using defaults:', error);
 		return {};
 	}
 }
@@ -41,8 +42,8 @@ export async function readSettings(): Promise<StoredSettings> {
 export async function writeSettings(settings: StoredSettings): Promise<void> {
 	try {
 		await mkdir(dirname(filePath), { recursive: true });
-	} catch (e) {
-		console.warn('Failed to create directory for settings file:', e);
+	} catch (error) {
+		console.warn('Failed to create directory for settings file:', error);
 	}
 	await writeFile(filePath, JSON.stringify(settings, null, 2), 'utf8');
 }
@@ -74,13 +75,13 @@ async function ensureConversationFile() {
 
 	try {
 		await mkdir(dir, { recursive: true });
-	} catch (e) {
-		console.warn('Failed to create conversation directory:', dir, e);
+	} catch (error) {
+		console.warn('Failed to create conversation directory:', dir, error);
 	}
 
 	try {
 		await access(conversationFilePath);
-	} catch (e) {
+	} catch (error) {
 		await writeFile(conversationFilePath, JSON.stringify({}, null, 2), 'utf8');
 	}
 }
@@ -89,7 +90,8 @@ export async function readConversations(): Promise<ConversationStore> {
 	try {
 		const raw = await readFile(conversationFilePath, 'utf8');
 		return JSON.parse(raw) as ConversationStore;
-	} catch (e) {
+	} catch (error) {
+		console.warn('Failed to read conversations file, using empty store:', error);
 		return {};
 	}
 }
@@ -97,8 +99,8 @@ export async function readConversations(): Promise<ConversationStore> {
 export async function writeConversations(conversations: ConversationStore): Promise<void> {
 	try {
 		await mkdir(dirname(conversationFilePath), { recursive: true });
-	} catch (e) {
-		console.warn('Failed to create directory for conversation file:', e);
+	} catch (error) {
+		console.warn('Failed to create directory for conversation file:', error);
 	}
 	await writeFile(conversationFilePath, JSON.stringify(conversations, null, 2), 'utf8');
 }
