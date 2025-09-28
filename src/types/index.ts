@@ -84,6 +84,10 @@ export interface SetChannelTopicData extends ServerIdentifier {
 	channelType?: 'text' | 'voice';
 }
 
+export interface SetAllChannelTopicsData extends ServerIdentifier {
+	channelTopics: Record<string, string>;
+}
+
 export interface BulkCreateChannelsData extends ServerIdentifier {
 	category: string;
 	textChannels?: string[];
