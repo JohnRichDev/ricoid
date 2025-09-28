@@ -14,6 +14,8 @@ import {
 	reorderChannel,
 	reorderChannels,
 	renameChannel,
+	setChannelTopic,
+	setAllChannelTopics,
 	getServerInfo,
 	setChannelPermissions,
 	getUserInfo,
@@ -58,6 +60,8 @@ import type {
 	ReorderChannelData,
 	ReorderChannelsData,
 	RenameChannelData,
+	SetChannelTopicData,
+	SetAllChannelTopicsData,
 	BulkCreateChannelsData,
 	ServerInfoData,
 	SetChannelPermissionsData,
@@ -160,6 +164,12 @@ const functionHandlers: Record<string, (args: any) => Promise<any>> = {
 	},
 	renameChannel: async (args: RenameChannelData) => {
 		return await renameChannel(args);
+	},
+	setChannelTopic: async (args: SetChannelTopicData) => {
+		return await setChannelTopic(args);
+	},
+	setAllChannelTopics: async (args: SetAllChannelTopicsData) => {
+		return await setAllChannelTopics(args);
 	},
 	bulkCreateChannels: async (args: BulkCreateChannelsData) => {
 		return await bulkCreateChannels(args);
