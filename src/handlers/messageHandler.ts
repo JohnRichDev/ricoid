@@ -318,10 +318,10 @@ function buildConversationContext(
 	parts: Array<{ text: string }>;
 }> {
 	const aiConfig = {
-		maxRecentMessages: 10,
+		maxRecentMessages: 15,
 		functionCallPrefix: 'Function ',
 		messages: {
-			previousContext: 'Previous conversation context:',
+			previousContext: 'PREVIOUS CONVERSATION CONTEXT (READ THIS CAREFULLY):',
 			functionResults: 'Recent function call results (you can reference this data in your responses):',
 			functionResultItem: '{index}. {text}',
 		},
@@ -344,6 +344,21 @@ function buildConversationContext(
 		);
 
 		let contextMessage = aiConfig.messages.previousContext;
+
+		const recentUserMessages = recentMessages
+			.filter((msg) => msg.role === 'user' && !msg.parts[0]?.text?.startsWith(aiConfig.functionCallPrefix))
+			.slice(-5);
+
+		if (recentUserMessages.length > 0) {
+			contextMessage += '\n\nRecent user requests:';
+			recentUserMessages.forEach((msg, index) => {
+				const text = msg.parts[0]?.text || '';
+
+				const userMessage = text.includes('User message: ') ? text.split('User message: ')[1] : text;
+				contextMessage += `\n${index + 1}. "${userMessage}"`;
+			});
+		}
+
 		if (functionResultsInHistory.length > 0) {
 			contextMessage += '\n\n' + aiConfig.messages.functionResults;
 			functionResultsInHistory.forEach((result, index) => {
