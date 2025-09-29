@@ -296,6 +296,25 @@ export function createAITools() {
 				},
 			},
 			{
+				name: 'setAllChannelTopics',
+				description: 'Set topics/descriptions for multiple text channels at once',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (optional if bot is only in one server)',
+						},
+						channelTopics: {
+							type: Type.OBJECT,
+							description:
+								'An object mapping channel names to their topics (e.g., {"general": "General discussion", "announcements": "Important updates"})',
+						},
+					},
+					required: ['channelTopics'],
+				},
+			},
+			{
 				name: 'bulkCreateChannels',
 				description:
 					'Create multiple channels at once under a specific category. Text channels will automatically get appropriate topics based on their names.',

@@ -14,6 +14,8 @@ import type {
 	ReorderChannelData,
 	ReorderChannelsData,
 	RenameChannelData,
+	SetChannelTopicData,
+	SetAllChannelTopicsData,
 	BulkCreateChannelsData,
 	ServerInfoData,
 	SetChannelPermissionsData,
@@ -746,6 +748,92 @@ export async function renameChannel({ server, oldName, newName, channelType }: R
 		return `Channel "${oldChannelName}" renamed to "${newName}" in ${guild.name}.`;
 	} catch (error) {
 		throw new Error(`Failed to rename channel: ${error}`);
+	}
+}
+
+export async function setChannelTopic({
+	server,
+	channelName,
+	topic,
+	channelType = 'text',
+}: SetChannelTopicData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		await guild.channels.fetch();
+
+		let channelTypeNum: number | undefined;
+		if (channelType === 'text') channelTypeNum = 0;
+		else if (channelType === 'voice') channelTypeNum = 2;
+
+		const channel = findChannelByName(guild, channelName, channelTypeNum);
+
+		if (!channel) {
+			const availableChannels = guild.channels.cache
+				.filter((ch) => channelTypeNum === undefined || ch.type === channelTypeNum)
+				.map((ch) => ch.name)
+				.join(', ');
+			return `Channel "${channelName}" not found in ${guild.name}. Available channels: ${availableChannels}`;
+		}
+
+		if (channel.type !== 0) {
+			return `Cannot set topic for "${channelName}" - only text channels can have topics.`;
+		}
+
+		const textChannel = channel as TextChannel;
+		await textChannel.setTopic(topic);
+		return `Topic set for "${channelName}": "${topic}"`;
+	} catch (error) {
+		throw new Error(`Failed to set channel topic: ${error}`);
+	}
+}
+
+export async function setAllChannelTopics({ server, channelTopics }: SetAllChannelTopicsData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		await guild.channels.fetch();
+
+		const textChannels = guild.channels.cache.filter((ch) => ch.type === 0);
+		const results: string[] = [];
+		const errors: string[] = [];
+
+		for (const [channelName, topic] of Object.entries(channelTopics)) {
+			try {
+				const channel = textChannels.find(
+					(ch) =>
+						ch.name.toLowerCase() === channelName.toLowerCase() ||
+						ch.name
+							.toLowerCase()
+							.replace(/[^\w\s-]/g, '')
+							.trim() ===
+							channelName
+								.toLowerCase()
+								.replace(/[^\w\s-]/g, '')
+								.trim(),
+				);
+
+				if (!channel) {
+					errors.push(`Channel "${channelName}" not found`);
+					continue;
+				}
+
+				const textChannel = channel as TextChannel;
+				await textChannel.setTopic(topic);
+				results.push(`✅ ${channelName}: "${topic}"`);
+			} catch (error) {
+				errors.push(`❌ ${channelName}: ${error}`);
+			}
+		}
+
+		let response = `**Channel Topics Set:**\n${results.join('\n')}`;
+		if (errors.length > 0) {
+			response += `\n\n**Errors:**\n${errors.join('\n')}`;
+		}
+
+		return response;
+	} catch (error) {
+		throw new Error(`Failed to set channel topics: ${error}`);
 	}
 }
 
