@@ -190,7 +190,8 @@ export async function findTextChannel(channelId: string, serverId?: string): Pro
 			(channel): channel is TextChannel =>
 				channel instanceof TextChannel &&
 				(channel.name.toLowerCase() === channelId.toLowerCase() ||
-					channel.name.toLowerCase() === channelId.toLowerCase().replace('#', '')),
+					channel.name.toLowerCase() === channelId.toLowerCase().replace('#', '') ||
+					channel.name.toLowerCase().includes(channelId.toLowerCase())),
 		);
 
 		if (channels.size === 0) {
@@ -434,7 +435,7 @@ export async function clearDiscordMessages({
 	channel,
 	messageCount = 100,
 }: ClearMessagesData): Promise<string> {
-	const textChannel = await findTextChannel(channel, server);
+	const textChannel = await findTextChannel(channel!, server);
 
 	try {
 		const messages = await textChannel.messages.fetch({
