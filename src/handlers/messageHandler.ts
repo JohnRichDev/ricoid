@@ -1,5 +1,6 @@
-import { Message } from 'discord.js';
+import { Message, TextChannel } from 'discord.js';
 import { GoogleGenAI } from '@google/genai';
+import { createContext, runInContext } from 'vm';
 import { getCachedSettings, reloadSettings } from '../config/index.js';
 import { createAIConfig, createAITools } from '../ai/index.js';
 import { discordClient } from '../discord/client.js';
@@ -84,7 +85,8 @@ import type {
 	DeleteWebhookData,
 	GetBotInfoData,
 } from '../types/index.js';
-import { getConversationHistory, addMessageToConversation, type ConversationMessage } from '../util/settingsStore.js';
+import { shouldShowConfirmation } from '../commands/utility/settings/confirmationModule.js';
+import { createAIConfirmation } from '../util/confirmationSystem.js';
 
 function setDefaultServer(args: any, messageGuildId: string): void {
 	if (!args.server) {
@@ -92,7 +94,7 @@ function setDefaultServer(args: any, messageGuildId: string): void {
 	}
 }
 
-function normalizeChannelReference(args: any, messageChannelId: string): void {
+function normalizeChannelReference(args: any, messageChannelId: string, callName?: string): void {
 	if ('channel' in args) {
 		const channel = args.channel;
 		const isCurrentChannelRef =
@@ -101,6 +103,8 @@ function normalizeChannelReference(args: any, messageChannelId: string): void {
 		if (isCurrentChannelRef) {
 			args.channel = messageChannelId;
 		}
+	} else if (callName === 'clearDiscordMessages') {
+		args.channel = messageChannelId;
 	}
 }
 
@@ -116,19 +120,19 @@ function validateAndCleanServer(args: any): void {
 	}
 }
 
-function normalizeChannelArgs(args: any, messageChannelId: string, messageGuildId: string): any {
+function normalizeChannelArgs(args: any, messageChannelId: string, messageGuildId: string, callName?: string): any {
 	if (!args || typeof args !== 'object') {
 		return args;
 	}
 
 	setDefaultServer(args, messageGuildId);
-	normalizeChannelReference(args, messageChannelId);
+	normalizeChannelReference(args, messageChannelId, callName);
 	validateAndCleanServer(args);
 
 	return args;
 }
 
-const functionHandlers: Record<string, (args: any) => Promise<any>> = {
+const functionHandlers: Record<string, (...args: any[]) => Promise<any>> = {
 	sendDiscordMessage: async (args: MessageData) => {
 		return await sendDiscordMessage(args);
 	},
@@ -237,6 +241,77 @@ const functionHandlers: Record<string, (args: any) => Promise<any>> = {
 	getBotInfo: async (args: GetBotInfoData) => {
 		return await getBotInfo(args);
 	},
+	executeCode: async (args: { code: string }, message?: Message) => {
+		const settings = getCachedSettings();
+		if (shouldShowConfirmation(settings, 'code-execution')) {
+			if (!message) {
+				return 'Cannot execute code: No message context for confirmation.';
+			}
+
+			const displayCode = args.code.length > 1000 ? args.code.substring(0, 1000) + '...' : args.code;
+			const codeBlock = `\`\`\`javascript\n${displayCode}\n\`\`\``;
+
+			const confirmation = await createAIConfirmation(message.channelId, message.author.id, {
+				title: '⚠️ Execute Code',
+				description: `Are you sure you want to execute the following JavaScript code?\n\n${codeBlock}\n\n⚠️ **This code has full access to the Discord API and could perform dangerous operations.**`,
+				dangerous: true,
+				timeout: 30000,
+				confirmButtonLabel: 'Execute Code',
+			});
+
+			if (!confirmation.confirmed) {
+				if (confirmation.timedOut) {
+					return 'Code execution timed out - code was not executed.';
+				}
+				return 'Code execution cancelled - code was not executed.';
+			}
+		}
+
+		const maxRetries = 3;
+		let lastError: string = '';
+
+		for (let attempt = 1; attempt <= maxRetries; attempt++) {
+			try {
+				const context = createContext({
+					console: console,
+					readMessages: async (count: number = 50) => {
+						if (!message) return 'No message context';
+						const result = await readDiscordMessages({
+							channel: message.channelId,
+							server: message.guildId || undefined,
+							messageCount: count,
+						});
+						try {
+							const messages = JSON.parse(result);
+							if (Array.isArray(messages)) {
+								return messages.map((msg: any) => `${msg.author}: ${msg.content}`).join('\\n');
+							}
+							return result;
+						} catch {
+							return result;
+						}
+					},
+					discordClient: discordClient,
+					currentChannel: message?.channelId,
+					currentServer: message?.guildId,
+				});
+
+				const wrappedCode = `(async () => { ${args.code} })()`;
+				const result = await runInContext(wrappedCode, context);
+				return `Code executed successfully. Result: ${result}`;
+			} catch (error) {
+				lastError = error instanceof Error ? error.message : 'Unknown error';
+				console.log(`executeCode attempt ${attempt} failed: ${lastError}`);
+
+				if (attempt < maxRetries) {
+					await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+					continue;
+				}
+			}
+		}
+
+		return `Error executing code after ${maxRetries} attempts: ${lastError}`;
+	},
 	reloadSettings: async () => {
 		reloadSettings();
 		return 'Settings reloaded successfully! The bot will now use the updated configuration.';
@@ -312,7 +387,11 @@ async function sendResponseMessage(
 
 function buildConversationContext(
 	contextualMessage: string,
-	conversationHistory: ConversationMessage[],
+	conversationHistory: Array<{
+		role: 'user' | 'model';
+		parts: Array<{ text: string }>;
+		timestamp: number;
+	}>,
 ): Array<{
 	role: 'user' | 'model';
 	parts: Array<{ text: string }>;
@@ -399,8 +478,13 @@ async function processFunctionCall(
 			});
 
 			try {
-				const normalizedArgs = normalizeChannelArgs(call.args, message.channelId, message.guildId || '');
-				const result = await handler(normalizedArgs);
+				const normalizedArgs = normalizeChannelArgs(call.args, message.channelId, message.guildId || '', call.name);
+				let result;
+				if (call.name === 'executeCode') {
+					result = await handler(normalizedArgs, message);
+				} else {
+					result = await handler(normalizedArgs);
+				}
 				functionResults.push({ name: call.name, result });
 				allFunctionResults.push({ name: call.name, result });
 				console.log(`Function call result for ${call.name}:`, result);
@@ -547,39 +631,6 @@ async function processAIResponse(
 	return { responseText, allFunctionResults };
 }
 
-async function saveConversationHistory(
-	channelId: string,
-	contextualMessage: string,
-	responseText: string,
-	allFunctionResults: Array<{ name: string; result: any }>,
-): Promise<void> {
-	const userMessageEntry: ConversationMessage = {
-		role: 'user',
-		parts: [{ text: contextualMessage }],
-		timestamp: Date.now(),
-	};
-
-	const botResponseEntry: ConversationMessage = {
-		role: 'model',
-		parts: [{ text: responseText }],
-		timestamp: Date.now(),
-	};
-
-	const functionResultEntries: ConversationMessage[] = allFunctionResults.map((funcResult) => ({
-		role: 'user' as const,
-		parts: [{ text: `Function ${funcResult.name} returned: ${JSON.stringify(funcResult.result)}` }],
-		timestamp: Date.now(),
-	}));
-
-	await addMessageToConversation(channelId, userMessageEntry);
-
-	for (const funcEntry of functionResultEntries) {
-		await addMessageToConversation(channelId, funcEntry);
-	}
-
-	await addMessageToConversation(channelId, botResponseEntry);
-}
-
 async function sendFinalResponse(message: Message, responseText: string): Promise<void> {
 	const { messageExists, channelExists, targetChannel } = await checkMessageAndChannelAccess(message);
 
@@ -619,22 +670,24 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 		const channelName = getChannelName(message);
 		const contextualMessage = `Current channel: ${channelName} (ID: ${message.channelId})\nUser message: ${userMessage}`;
 
-		const previousHistory = await getConversationHistory(message.channelId);
-		const conversationHistory = previousHistory?.messages || [];
+		const textChannel = message.channel as TextChannel;
+		const fetchedMessages = await textChannel.messages.fetch({ limit: 20, before: message.id });
+		const conversationHistory = Array.from(fetchedMessages.values())
+			.sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+			.filter((msg) => !msg.author.bot && msg.content.trim())
+			.slice(-15)
+			.map((msg) => ({
+				role: 'user' as const,
+				parts: [{ text: `User message: ${msg.content}` }],
+				timestamp: msg.createdTimestamp,
+			}));
 
 		const conversation = buildConversationContext(contextualMessage, conversationHistory);
 
-		const { responseText, allFunctionResults } = await processAIResponse(
-			aiClient,
-			modelName,
-			config,
-			conversation,
-			message,
-		);
+		const { responseText } = await processAIResponse(aiClient, modelName, config, conversation, message);
 
 		console.log('Final response text:', responseText);
 
-		await saveConversationHistory(message.channelId, contextualMessage, responseText, allFunctionResults);
 		await sendFinalResponse(message, responseText);
 	} catch (error) {
 		console.error('Error:', error);
