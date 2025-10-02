@@ -21,6 +21,7 @@ const CONFIRMATION_TYPES = [
 	'user-moderation',
 	'bulk-operations',
 	'dangerous-operations',
+	'code-execution',
 ] as const;
 
 type ConfirmationType = (typeof CONFIRMATION_TYPES)[number];
@@ -33,7 +34,8 @@ interface ConfirmationSettings {
 function getDefaultConfirmationSettings(): ConfirmationSettings {
 	const types = {} as Record<ConfirmationType, boolean>;
 	CONFIRMATION_TYPES.forEach((type) => {
-		types[type] = type.includes('delete') || type.includes('moderation') || type.includes('dangerous');
+		types[type] =
+			type.includes('delete') || type.includes('moderation') || type.includes('dangerous') || type === 'code-execution';
 	});
 
 	return {
@@ -64,7 +66,7 @@ function formatConfirmationsList(confirmationSettings: ConfirmationSettings): st
 	const groupedTypes = {
 		'Role Operations': ['role-create', 'role-edit', 'role-delete'],
 		'Channel Operations': ['channel-create', 'channel-edit', 'channel-delete'],
-		'User & Safety': ['user-moderation', 'dangerous-operations'],
+		'User & Safety': ['user-moderation', 'dangerous-operations', 'code-execution'],
 		'Bulk Operations': ['bulk-operations'],
 	} as const;
 
