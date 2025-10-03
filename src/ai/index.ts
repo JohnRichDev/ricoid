@@ -468,14 +468,14 @@ export function createAITools() {
 						},
 						channel: {
 							type: Type.STRING,
-							description: 'Channel name (e.g., "general") or ID',
+							description: 'Channel name (e.g., "general") or ID. If not specified, clears the current channel.',
 						},
 						messageCount: {
 							type: Type.NUMBER,
 							description: 'Number of messages to clear (max 100). If not specified, clears up to 100 messages.',
 						},
 					},
-					required: ['channel'],
+					required: [],
 				},
 			},
 			{
@@ -889,6 +889,21 @@ export function createAITools() {
 						},
 					},
 					required: [],
+				},
+			},
+			{
+				name: 'executeCode',
+				description:
+					'Execute arbitrary JavaScript code in a safe context. Use this for calculations, string manipulation, or other code execution needs.',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						code: {
+							type: Type.STRING,
+							description: 'The JavaScript code to execute',
+						},
+					},
+					required: ['code'],
 				},
 			},
 		],
