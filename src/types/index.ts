@@ -28,7 +28,8 @@ export interface MessageHistory extends ChannelIdentifier {
 	messageCount?: number;
 }
 
-export interface ClearMessagesData extends ChannelIdentifier {
+export interface ClearMessagesData extends ServerIdentifier {
+	channel?: string;
 	messageCount?: number;
 }
 
