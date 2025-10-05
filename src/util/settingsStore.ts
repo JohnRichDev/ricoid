@@ -1,6 +1,22 @@
 import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 
+export type CustomCommand = {
+	trigger: string;
+	response: string;
+	description: string;
+	createdAt: string;
+};
+
+export type PendingReminder = {
+	id: string;
+	server?: string;
+	user?: string;
+	message: string;
+	triggerTime: number;
+	channel?: string;
+};
+
 export type StoredSettings = {
 	prompt?: string;
 	access?: string[];
@@ -9,6 +25,8 @@ export type StoredSettings = {
 		enabled: boolean;
 		types: Record<string, boolean>;
 	};
+	customCommands?: Record<string, Record<string, CustomCommand>>;
+	pendingReminders?: PendingReminder[];
 };
 
 const filePath = resolve(process.cwd(), 'data', 'settings.json');
@@ -138,3 +156,70 @@ export async function addMessageToConversation(channelId: string, message: Conve
 }
 
 ensureConversationFile().catch(() => undefined);
+
+export async function getCustomCommands(guildId: string): Promise<Record<string, CustomCommand>> {
+	const settings = await readSettings();
+	return settings.customCommands?.[guildId] || {};
+}
+
+export async function saveCustomCommand(guildId: string, command: CustomCommand): Promise<void> {
+	const settings = await readSettings();
+
+	if (!settings.customCommands) {
+		settings.customCommands = {};
+	}
+
+	if (!settings.customCommands[guildId]) {
+		settings.customCommands[guildId] = {};
+	}
+
+	const normalizedTrigger = command.trigger.toLowerCase();
+	settings.customCommands[guildId][normalizedTrigger] = command;
+
+	await writeSettings(settings);
+}
+
+export async function deleteCustomCommand(guildId: string, trigger: string): Promise<boolean> {
+	const settings = await readSettings();
+
+	if (!settings.customCommands?.[guildId]) {
+		return false;
+	}
+
+	const normalizedTrigger = trigger.toLowerCase();
+	const existed = normalizedTrigger in settings.customCommands[guildId];
+
+	if (existed) {
+		delete settings.customCommands[guildId][normalizedTrigger];
+		await writeSettings(settings);
+	}
+
+	return existed;
+}
+
+export async function getPendingReminders(): Promise<PendingReminder[]> {
+	const settings = await readSettings();
+	return settings.pendingReminders || [];
+}
+
+export async function saveReminder(reminder: PendingReminder): Promise<void> {
+	const settings = await readSettings();
+
+	if (!settings.pendingReminders) {
+		settings.pendingReminders = [];
+	}
+
+	settings.pendingReminders.push(reminder);
+	await writeSettings(settings);
+}
+
+export async function deleteReminder(reminderId: string): Promise<void> {
+	const settings = await readSettings();
+
+	if (!settings.pendingReminders) {
+		return;
+	}
+
+	settings.pendingReminders = settings.pendingReminders.filter((r) => r.id !== reminderId);
+	await writeSettings(settings);
+}
