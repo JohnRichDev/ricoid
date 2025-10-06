@@ -363,7 +363,8 @@ export function createAITools() {
 			},
 			{
 				name: 'setChannelPermissions',
-				description: 'Set permissions for a role on a specific channel (currently informational only)',
+				description:
+					'Set permissions for a role on a specific channel. Allows granting or denying permissions like ViewChannel, SendMessages, ManageMessages, Connect, Speak, etc.',
 				parameters: {
 					type: Type.OBJECT,
 					properties: {
@@ -880,6 +881,586 @@ export function createAITools() {
 			{
 				name: 'getBotInfo',
 				description: 'Get information about the bot itself including its user ID and current roles',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'getAuditLogs',
+				description: 'View server audit log to track moderation actions and changes',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						limit: {
+							type: Type.NUMBER,
+							description: 'Number of audit log entries to fetch (default 10, max 100)',
+						},
+						actionType: {
+							type: Type.STRING,
+							description: 'Filter by action type (e.g., MEMBER_BAN_ADD, CHANNEL_CREATE, MESSAGE_DELETE)',
+						},
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'createInvite',
+				description: 'Create an invite link for a Discord server channel',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Channel name or ID to create invite for',
+						},
+						maxUses: {
+							type: Type.NUMBER,
+							description: 'Maximum number of uses (0 = unlimited, default)',
+						},
+						maxAge: {
+							type: Type.NUMBER,
+							description: 'Time until expiration in seconds (default 86400 = 24 hours, 0 = never)',
+						},
+					},
+					required: ['channel'],
+				},
+			},
+			{
+				name: 'listInvites',
+				description: 'List all active invite links for the server',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'deleteInvite',
+				description: 'Delete a specific invite link',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						inviteCode: {
+							type: Type.STRING,
+							description: 'The invite code to delete (e.g., "abc123xyz")',
+						},
+					},
+					required: ['inviteCode'],
+				},
+			},
+			{
+				name: 'addEmoji',
+				description: 'Add a custom emoji to the server',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						name: {
+							type: Type.STRING,
+							description: 'Name for the emoji',
+						},
+						imageUrl: {
+							type: Type.STRING,
+							description: 'URL of the emoji image',
+						},
+					},
+					required: ['name'],
+				},
+			},
+			{
+				name: 'removeEmoji',
+				description: 'Remove a custom emoji from the server',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						emojiName: {
+							type: Type.STRING,
+							description: 'Name of the emoji to remove',
+						},
+					},
+					required: ['emojiName'],
+				},
+			},
+			{
+				name: 'listEmojis',
+				description: 'List all custom emojis in the server',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'unbanUser',
+				description: 'Remove a ban from a user',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						userId: {
+							type: Type.STRING,
+							description: 'User ID to unban',
+						},
+						reason: {
+							type: Type.STRING,
+							description: 'Reason for unbanning',
+						},
+					},
+					required: ['userId'],
+				},
+			},
+			{
+				name: 'listBans',
+				description: 'List all banned users in the server',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'updateServerSettings',
+				description: 'Update server settings such as name, icon, or description',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						name: {
+							type: Type.STRING,
+							description: 'New server name',
+						},
+						iconUrl: {
+							type: Type.STRING,
+							description: 'URL of new server icon',
+						},
+						description: {
+							type: Type.STRING,
+							description: 'New server description',
+						},
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'createEvent',
+				description: 'Create a scheduled event in the server',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						name: {
+							type: Type.STRING,
+							description: 'Event name',
+						},
+						description: {
+							type: Type.STRING,
+							description: 'Event description',
+						},
+						startTime: {
+							type: Type.STRING,
+							description: 'ISO 8601 timestamp for event start time',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Voice channel for the event (optional)',
+						},
+					},
+					required: ['name', 'startTime'],
+				},
+			},
+			{
+				name: 'cancelEvent',
+				description: 'Cancel a scheduled event',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						eventId: {
+							type: Type.STRING,
+							description: 'ID of the event to cancel',
+						},
+					},
+					required: ['eventId'],
+				},
+			},
+			{
+				name: 'moveVoiceUser',
+				description: 'Move a user from one voice channel to another',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						user: {
+							type: Type.STRING,
+							description: 'Username, nickname, or user ID',
+						},
+						toChannel: {
+							type: Type.STRING,
+							description: 'Target voice channel name or ID',
+						},
+					},
+					required: ['user', 'toChannel'],
+				},
+			},
+			{
+				name: 'muteVoiceUser',
+				description: 'Mute, unmute, deafen, or undeafen a user in voice chat',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						user: {
+							type: Type.STRING,
+							description: 'Username, nickname, or user ID',
+						},
+						action: {
+							type: Type.STRING,
+							description: 'Action to perform',
+							enum: ['mute', 'unmute', 'deafen', 'undeafen'],
+						},
+					},
+					required: ['user', 'action'],
+				},
+			},
+			{
+				name: 'createThread',
+				description: 'Create a thread in a channel, optionally from a specific message',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Channel name or ID',
+						},
+						name: {
+							type: Type.STRING,
+							description: 'Thread name',
+						},
+						messageId: {
+							type: Type.STRING,
+							description: 'Message ID to start thread from (optional)',
+						},
+					},
+					required: ['channel', 'name'],
+				},
+			},
+			{
+				name: 'archiveThread',
+				description: 'Archive/close a thread',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Parent channel name or ID',
+						},
+						threadId: {
+							type: Type.STRING,
+							description: 'Thread ID to archive',
+						},
+					},
+					required: ['channel', 'threadId'],
+				},
+			},
+			{
+				name: 'editMessage',
+				description: 'Edit a previously sent message',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Channel name or ID',
+						},
+						messageId: {
+							type: Type.STRING,
+							description: 'ID of the message to edit',
+						},
+						newContent: {
+							type: Type.STRING,
+							description: 'New message content',
+						},
+					},
+					required: ['channel', 'messageId', 'newContent'],
+				},
+			},
+			{
+				name: 'deleteMessage',
+				description: 'Delete a specific message',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Channel name or ID',
+						},
+						messageId: {
+							type: Type.STRING,
+							description: 'ID of the message to delete',
+						},
+					},
+					required: ['channel', 'messageId'],
+				},
+			},
+			{
+				name: 'setSlowmode',
+				description: 'Set slowmode delay for a channel (rate limit between messages)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Channel name or ID',
+						},
+						seconds: {
+							type: Type.NUMBER,
+							description: 'Slowmode delay in seconds (0 to disable, max 21600 = 6 hours)',
+						},
+					},
+					required: ['channel', 'seconds'],
+				},
+			},
+			{
+				name: 'setNSFW',
+				description: 'Mark or unmark a channel as NSFW (age-restricted)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Channel name or ID',
+						},
+						enabled: {
+							type: Type.BOOLEAN,
+							description: 'True to mark as NSFW, false to remove NSFW flag',
+						},
+					},
+					required: ['channel', 'enabled'],
+				},
+			},
+			{
+				name: 'createForumChannel',
+				description: 'Create a forum channel for topic-based discussions',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						channelName: {
+							type: Type.STRING,
+							description: 'Name for the forum channel',
+						},
+						category: {
+							type: Type.STRING,
+							description: 'Category to create forum in (optional)',
+						},
+						topic: {
+							type: Type.STRING,
+							description: 'Forum description/guidelines (optional)',
+						},
+						tags: {
+							type: Type.ARRAY,
+							description: 'Available tags for posts (optional)',
+							items: {
+								type: Type.STRING,
+							},
+						},
+					},
+					required: ['channelName'],
+				},
+			},
+			{
+				name: 'createForumPost',
+				description: 'Create a new post in a forum channel',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Forum channel name or ID',
+						},
+						title: {
+							type: Type.STRING,
+							description: 'Post title',
+						},
+						message: {
+							type: Type.STRING,
+							description: 'Post content',
+						},
+						tags: {
+							type: Type.ARRAY,
+							description: 'Tags for the post (optional)',
+							items: {
+								type: Type.STRING,
+							},
+						},
+					},
+					required: ['channel', 'title', 'message'],
+				},
+			},
+			{
+				name: 'setupLogging',
+				description: 'Configure event logging to track server activity in a specific channel',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						logChannel: {
+							type: Type.STRING,
+							description: 'Channel to send logs to',
+						},
+						eventType: {
+							type: Type.STRING,
+							description: 'Type of events to log',
+							enum: ['message', 'member', 'channel', 'role', 'moderation', 'all'],
+						},
+						enabled: {
+							type: Type.BOOLEAN,
+							description: 'Enable or disable this log type',
+						},
+					},
+					required: ['logChannel', 'eventType', 'enabled'],
+				},
+			},
+			{
+				name: 'createCustomCommand',
+				description: 'Create a custom command that responds with a predefined message',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						trigger: {
+							type: Type.STRING,
+							description: 'Command trigger word/phrase',
+						},
+						response: {
+							type: Type.STRING,
+							description: 'Response message',
+						},
+						description: {
+							type: Type.STRING,
+							description: 'Command description (optional)',
+						},
+					},
+					required: ['trigger', 'response'],
+				},
+			},
+			{
+				name: 'deleteCustomCommand',
+				description: 'Delete a custom command',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						trigger: {
+							type: Type.STRING,
+							description: 'Command trigger to delete',
+						},
+					},
+					required: ['trigger'],
+				},
+			},
+			{
+				name: 'listCustomCommands',
+				description: 'List all custom commands for the server',
 				parameters: {
 					type: Type.OBJECT,
 					properties: {
