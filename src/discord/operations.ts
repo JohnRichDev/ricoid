@@ -1,5 +1,28 @@
-import { Guild, TextChannel } from 'discord.js';
+import { Guild, TextChannel, PermissionFlagsBits } from 'discord.js';
 import { discordClient } from './client.js';
+import {
+	getCustomCommands,
+	saveCustomCommand as saveCustomCommandToStore,
+	deleteCustomCommand as deleteCustomCommandFromStore,
+	getPendingReminders,
+	saveReminder,
+	deleteReminder,
+} from '../util/settingsStore.js';
+import {
+	findMember as findMemberHelper,
+	validateMessageContent,
+	parseHexColor,
+	validateImageUrl,
+	generateId,
+} from '../util/helpers.js';
+import {
+	DISCORD_LIMITS,
+	POLL_EMOJIS,
+	BULK_DELETE_MIN_AGE_MS,
+	BULK_DELETE_MAX_AGE_MS,
+	CHANNEL_TYPES,
+	REMINDER_MAX_DELAY_MS,
+} from '../util/constants.js';
 import type {
 	MessageData,
 	MessageHistory,
@@ -52,6 +75,16 @@ import type {
 	CreateWebhookData,
 	ListWebhooksData,
 	DeleteWebhookData,
+	EditMessageData,
+	DeleteMessageData,
+	SetSlowmodeData,
+	SetNSFWData,
+	CreateForumChannelData,
+	CreateForumPostData,
+	LogEventData,
+	CreateCustomCommandData,
+	DeleteCustomCommandData,
+	ListCustomCommandsData,
 } from '../types/index.js';
 
 function getChannelTypeDisplayName(channelType: number): string {
@@ -439,11 +472,11 @@ export async function clearDiscordMessages({
 
 	try {
 		const messages = await textChannel.messages.fetch({
-			limit: Math.min(messageCount, 100),
+			limit: Math.min(messageCount, DISCORD_LIMITS.MESSAGE_FETCH_LIMIT),
 		});
 
-		const twoWeeksAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
-		const thirtySecondsAgo = Date.now() - 30 * 1000;
+		const twoWeeksAgo = Date.now() - BULK_DELETE_MAX_AGE_MS;
+		const thirtySecondsAgo = Date.now() - BULK_DELETE_MIN_AGE_MS;
 		const deletableMessages = messages.filter(
 			(msg) => msg.createdTimestamp > twoWeeksAgo && msg.createdTimestamp < thirtySecondsAgo,
 		);
@@ -462,9 +495,9 @@ export async function clearDiscordMessages({
 
 function getChannelIcon(channelType: number): string {
 	switch (channelType) {
-		case 0:
+		case CHANNEL_TYPES.TEXT:
 			return '💬';
-		case 2:
+		case CHANNEL_TYPES.VOICE:
 			return '🔊';
 		default:
 			return '📄';
@@ -474,11 +507,11 @@ function getChannelIcon(channelType: number): string {
 function getChannelTypeNumber(channelType?: string): number | undefined {
 	switch (channelType) {
 		case 'text':
-			return 0;
+			return CHANNEL_TYPES.TEXT;
 		case 'voice':
-			return 2;
+			return CHANNEL_TYPES.VOICE;
 		case 'category':
-			return 4;
+			return CHANNEL_TYPES.CATEGORY;
 		default:
 			return undefined;
 	}
@@ -977,6 +1010,62 @@ export async function getServerInfo({ server }: ServerInfoData): Promise<string>
 	}
 }
 
+function convertPermissionNameToBit(permissionName: string): bigint | null {
+	const permissionMap: Record<string, bigint> = {
+		ViewChannel: PermissionFlagsBits.ViewChannel,
+		SendMessages: PermissionFlagsBits.SendMessages,
+		ReadMessageHistory: PermissionFlagsBits.ReadMessageHistory,
+		AddReactions: PermissionFlagsBits.AddReactions,
+		AttachFiles: PermissionFlagsBits.AttachFiles,
+		EmbedLinks: PermissionFlagsBits.EmbedLinks,
+		UseExternalEmojis: PermissionFlagsBits.UseExternalEmojis,
+		UseExternalStickers: PermissionFlagsBits.UseExternalStickers,
+		MentionEveryone: PermissionFlagsBits.MentionEveryone,
+		ManageMessages: PermissionFlagsBits.ManageMessages,
+		ManageThreads: PermissionFlagsBits.ManageThreads,
+		CreatePublicThreads: PermissionFlagsBits.CreatePublicThreads,
+		CreatePrivateThreads: PermissionFlagsBits.CreatePrivateThreads,
+		SendMessagesInThreads: PermissionFlagsBits.SendMessagesInThreads,
+		SendTTSMessages: PermissionFlagsBits.SendTTSMessages,
+		Connect: PermissionFlagsBits.Connect,
+		Speak: PermissionFlagsBits.Speak,
+		Stream: PermissionFlagsBits.Stream,
+		UseVAD: PermissionFlagsBits.UseVAD,
+		MuteMembers: PermissionFlagsBits.MuteMembers,
+		DeafenMembers: PermissionFlagsBits.DeafenMembers,
+		MoveMembers: PermissionFlagsBits.MoveMembers,
+		ManageChannels: PermissionFlagsBits.ManageChannels,
+		ManageRoles: PermissionFlagsBits.ManageRoles,
+		ManageWebhooks: PermissionFlagsBits.ManageWebhooks,
+		UseApplicationCommands: PermissionFlagsBits.UseApplicationCommands,
+		PrioritySpeaker: PermissionFlagsBits.PrioritySpeaker,
+		SendVoiceMessages: PermissionFlagsBits.SendVoiceMessages,
+	};
+
+	const normalizedName = permissionName.replace(/[_\s-]/g, '').toLowerCase();
+
+	for (const [key, value] of Object.entries(permissionMap)) {
+		if (key.toLowerCase() === normalizedName) {
+			return value;
+		}
+	}
+
+	return null;
+}
+
+function parsePermissions(permissions: string[]): bigint[] {
+	const validPermissions: bigint[] = [];
+
+	for (const perm of permissions) {
+		const bit = convertPermissionNameToBit(perm);
+		if (bit !== null) {
+			validPermissions.push(bit);
+		}
+	}
+
+	return validPermissions;
+}
+
 export async function setChannelPermissions({
 	server,
 	channelName,
@@ -1009,11 +1098,44 @@ export async function setChannelPermissions({
 			return `Role "${roleName}" not found in ${guild.name}.`;
 		}
 
-		const allowMessage = allow.length > 0 ? `Allow: ${allow.join(', ')}\n` : '';
-		const denyMessage = deny.length > 0 ? `Deny: ${deny.join(', ')}` : 'No changes specified';
-		const changesMessage = allowMessage + denyMessage;
+		const allowBits = parsePermissions(allow);
+		const denyBits = parsePermissions(deny);
 
-		return `Found channel "${channel.name}" and role "${role.name}". Permission management requires manual configuration in Discord for security reasons. Would change:\n${changesMessage}`;
+		if (allowBits.length === 0 && denyBits.length === 0) {
+			return `No valid permissions specified for channel "${channel.name}" and role "${role.name}".`;
+		}
+
+		if (!('permissionOverwrites' in channel)) {
+			return `Channel "${channel.name}" does not support permission overwrites.`;
+		}
+
+		const permissionOverwrites: { [key: string]: boolean | null } = {};
+
+		for (const bit of allowBits) {
+			const permName = Object.keys(PermissionFlagsBits).find(
+				(key) => PermissionFlagsBits[key as keyof typeof PermissionFlagsBits] === bit,
+			);
+			if (permName) {
+				permissionOverwrites[permName] = true;
+			}
+		}
+
+		for (const bit of denyBits) {
+			const permName = Object.keys(PermissionFlagsBits).find(
+				(key) => PermissionFlagsBits[key as keyof typeof PermissionFlagsBits] === bit,
+			);
+			if (permName) {
+				permissionOverwrites[permName] = false;
+			}
+		}
+
+		await channel.permissionOverwrites.edit(role, permissionOverwrites);
+
+		const allowMessage = allow.length > 0 ? `Allowed: ${allow.join(', ')}\n` : '';
+		const denyMessage = deny.length > 0 ? `Denied: ${deny.join(', ')}` : '';
+		const changesMessage = (allowMessage + denyMessage).trim();
+
+		return `Successfully updated permissions for role "${role.name}" in channel "${channel.name}".\n${changesMessage}`;
 	} catch (error) {
 		throw new Error(`Failed to set channel permissions: ${error}`);
 	}
@@ -1289,15 +1411,14 @@ export async function createPoll({ server, channel, question, options, duration 
 	const textChannel = await findTextChannel(channel, server);
 
 	try {
-		if (options.length < 2 || options.length > 10) {
-			return 'Poll must have between 2 and 10 options.';
+		if (options.length < DISCORD_LIMITS.POLL_MIN_OPTIONS || options.length > DISCORD_LIMITS.POLL_MAX_OPTIONS) {
+			return `Poll must have between ${DISCORD_LIMITS.POLL_MIN_OPTIONS} and ${DISCORD_LIMITS.POLL_MAX_OPTIONS} options.`;
 		}
 
-		const emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 		let pollMessage = `**${question}**\n\n`;
 
 		options.forEach((option, index) => {
-			pollMessage += `${emojis[index]} ${option}\n`;
+			pollMessage += `${POLL_EMOJIS[index]} ${option}\n`;
 		});
 
 		if (duration) {
@@ -1307,7 +1428,7 @@ export async function createPoll({ server, channel, question, options, duration 
 		const sentMessage = await textChannel.send(pollMessage);
 
 		for (let i = 0; i < options.length; i++) {
-			await sentMessage.react(emojis[i]);
+			await sentMessage.react(POLL_EMOJIS[i]);
 		}
 
 		let result = `Poll created in #${textChannel.name}!\nMessage ID: ${sentMessage.id}`;
@@ -1455,31 +1576,87 @@ async function sendReminderMessage(message: string, targetChannel: TextChannel |
 	}
 }
 
-async function executeReminder(
-	server: string | undefined,
-	user: string | undefined,
-	message: string,
-	channel: string | undefined,
+async function executeReminderById(
+	reminderId: string,
+	reminderData: {
+		server?: string;
+		user?: string;
+		message: string;
+		channel?: string;
+	},
 ) {
 	try {
-		const targetChannel = await findReminderTarget(server, channel);
-		const targetUser = await findReminderUser(server, user);
-		await sendReminderMessage(message, targetChannel, targetUser);
+		const targetChannel = await findReminderTarget(reminderData.server, reminderData.channel);
+		const targetUser = await findReminderUser(reminderData.server, reminderData.user);
+		await sendReminderMessage(reminderData.message, targetChannel, targetUser);
+		await deleteReminder(reminderId);
 	} catch (error) {
 		console.error('Error sending reminder:', error);
+		await deleteReminder(reminderId);
 	}
 }
 
 export async function setReminder({ server, user, message, delay, channel }: ReminderData): Promise<string> {
 	try {
 		const delayMs = delay * 60 * 1000;
-		const reminderTime = new Date(Date.now() + delayMs);
 
-		setTimeout(() => executeReminder(server, user, message, channel), delayMs);
+		if (delayMs > REMINDER_MAX_DELAY_MS) {
+			return `Delay too long. Maximum delay is ${Math.floor(REMINDER_MAX_DELAY_MS / 60000)} minutes.`;
+		}
+
+		const reminderTime = new Date(Date.now() + delayMs);
+		const reminderId = generateId();
+
+		await saveReminder({
+			id: reminderId,
+			server,
+			user,
+			message,
+			triggerTime: Date.now() + delayMs,
+			channel,
+		});
+
+		setTimeout(() => executeReminderById(reminderId, { server, user, message, channel }), delayMs);
 
 		return formatReminderSetupMessage(message, reminderTime, user, channel);
 	} catch (error) {
 		throw new Error(`Failed to set reminder: ${error}`);
+	}
+}
+
+export async function initializeReminders(): Promise<void> {
+	try {
+		const reminders = await getPendingReminders();
+		const now = Date.now();
+
+		for (const reminder of reminders) {
+			const timeUntilTrigger = reminder.triggerTime - now;
+
+			if (timeUntilTrigger <= 0) {
+				await executeReminderById(reminder.id, {
+					server: reminder.server,
+					user: reminder.user,
+					message: reminder.message,
+					channel: reminder.channel,
+				});
+			} else if (timeUntilTrigger <= REMINDER_MAX_DELAY_MS) {
+				setTimeout(
+					() =>
+						executeReminderById(reminder.id, {
+							server: reminder.server,
+							user: reminder.user,
+							message: reminder.message,
+							channel: reminder.channel,
+						}),
+					timeUntilTrigger,
+				);
+			} else {
+				console.warn(`Reminder ${reminder.id} has delay exceeding maximum, skipping`);
+				await deleteReminder(reminder.id);
+			}
+		}
+	} catch (error) {
+		console.error('Error initializing reminders:', error);
 	}
 }
 
@@ -1703,9 +1880,18 @@ export async function createRole({ server, name, color, permissions }: CreateRol
 	const guild = await findServer(server);
 
 	try {
+		let parsedColor: number | undefined = undefined;
+		if (color) {
+			const colorResult = parseHexColor(color);
+			if (colorResult === null) {
+				return `Invalid color format: "${color}". Use hex format like #FF0000`;
+			}
+			parsedColor = colorResult;
+		}
+
 		const role = await guild.roles.create({
 			name,
-			color: color ? parseInt(color.replace('#', ''), 16) : undefined,
+			color: parsedColor,
 			permissions: (permissions as any) || [],
 		});
 
@@ -1724,9 +1910,18 @@ export async function editRole({ server, roleName, newName, newColor }: EditRole
 			return `Role "${roleName}" not found`;
 		}
 
+		let colorToSet = role.color;
+		if (newColor) {
+			const parsedColor = parseHexColor(newColor);
+			if (parsedColor === null) {
+				return `Invalid color format: "${newColor}". Use hex format like #FF0000`;
+			}
+			colorToSet = parsedColor;
+		}
+
 		await role.edit({
 			name: newName || role.name,
-			color: newColor ? parseInt(newColor.replace('#', ''), 16) : role.color,
+			color: colorToSet,
 		});
 
 		return `Role "${roleName}" updated`;
@@ -1791,6 +1986,10 @@ export async function addEmoji({ server, name, imageUrl }: EmojiData): Promise<s
 
 	if (!imageUrl) {
 		throw new Error('Image URL is required to add emoji');
+	}
+
+	if (!validateImageUrl(imageUrl)) {
+		return `Invalid image URL: "${imageUrl}". URL must point to a valid image file (png, jpg, jpeg, gif, webp)`;
 	}
 
 	try {
@@ -2099,4 +2298,292 @@ export async function getBotInfo({ server }: { server?: string }): Promise<strin
 	} catch (error) {
 		throw new Error(`Failed to get bot info: ${error}`);
 	}
+}
+
+export async function editMessage({ server, channel, messageId, newContent }: EditMessageData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		const validation = validateMessageContent(newContent);
+		if (!validation.valid) {
+			return `Invalid message content: ${validation.error}`;
+		}
+
+		const targetChannel = await findChannelByName(guild, channel, CHANNEL_TYPES.TEXT);
+		if (!targetChannel || !('messages' in targetChannel)) {
+			return `Channel "${channel}" not found or is not a text channel in ${guild.name}.`;
+		}
+
+		const message = await targetChannel.messages.fetch(messageId);
+		if (!message) {
+			return `Message ${messageId} not found in ${channel}.`;
+		}
+
+		if (message.author.id !== discordClient.user!.id) {
+			return `Cannot edit message ${messageId} - bot can only edit its own messages.`;
+		}
+
+		await message.edit(newContent);
+		return `Message ${messageId} edited successfully in ${channel}.`;
+	} catch (error) {
+		throw new Error(`Failed to edit message: ${error}`);
+	}
+}
+
+export async function deleteMessage({ server, channel, messageId }: DeleteMessageData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		const targetChannel = await findChannelByName(guild, channel, 0);
+		if (!targetChannel || !('messages' in targetChannel)) {
+			return `Channel "${channel}" not found or is not a text channel in ${guild.name}.`;
+		}
+
+		const message = await targetChannel.messages.fetch(messageId);
+		if (!message) {
+			return `Message ${messageId} not found in ${channel}.`;
+		}
+
+		await message.delete();
+		return `Message ${messageId} deleted successfully from ${channel}.`;
+	} catch (error) {
+		throw new Error(`Failed to delete message: ${error}`);
+	}
+}
+
+export async function setSlowmode({ server, channel, seconds }: SetSlowmodeData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		const targetChannel = await findChannelByName(guild, channel, CHANNEL_TYPES.TEXT);
+		if (!targetChannel || !('setRateLimitPerUser' in targetChannel)) {
+			return `Channel "${channel}" not found or does not support slowmode in ${guild.name}.`;
+		}
+
+		if (seconds < DISCORD_LIMITS.SLOWMODE_MIN_SECONDS || seconds > DISCORD_LIMITS.SLOWMODE_MAX_SECONDS) {
+			return `Slowmode delay must be between ${DISCORD_LIMITS.SLOWMODE_MIN_SECONDS} and ${DISCORD_LIMITS.SLOWMODE_MAX_SECONDS} seconds (6 hours).`;
+		}
+
+		await targetChannel.setRateLimitPerUser(seconds);
+
+		if (seconds === 0) {
+			return `Slowmode disabled for ${channel}.`;
+		}
+		return `Slowmode set to ${seconds} seconds for ${channel}.`;
+	} catch (error) {
+		throw new Error(`Failed to set slowmode: ${error}`);
+	}
+}
+
+export async function setNSFW({ server, channel, enabled }: SetNSFWData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		const targetChannel = await findChannelByName(guild, channel, 0);
+		if (!targetChannel || !('setNSFW' in targetChannel)) {
+			return `Channel "${channel}" not found or does not support NSFW settings in ${guild.name}.`;
+		}
+
+		await targetChannel.setNSFW(enabled);
+		return `Channel ${channel} ${enabled ? 'marked as NSFW' : 'NSFW flag removed'}.`;
+	} catch (error) {
+		throw new Error(`Failed to set NSFW: ${error}`);
+	}
+}
+
+export async function createForumChannel({
+	server,
+	channelName,
+	category,
+	topic,
+	tags = [],
+}: CreateForumChannelData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		const existingChannel = guild.channels.cache.find(
+			(ch) => ch.name.toLowerCase() === channelName.toLowerCase() && ch.type === 15,
+		);
+
+		if (existingChannel) {
+			return `Forum channel "${channelName}" already exists in ${guild.name}.`;
+		}
+
+		let parentCategory = null;
+		if (category) {
+			parentCategory = guild.channels.cache.find(
+				(ch) => ch.name.toLowerCase() === category.toLowerCase() && ch.type === 4,
+			);
+		}
+
+		const channelOptions: any = {
+			name: channelName,
+			type: 15,
+			topic: topic || undefined,
+			parent: parentCategory?.id,
+		};
+
+		if (tags.length > 0) {
+			channelOptions.availableTags = tags.map((tag) => ({
+				name: tag,
+				id: null,
+				moderated: false,
+			}));
+		}
+
+		const forumChannel = await guild.channels.create(channelOptions);
+		return `Forum channel "${forumChannel.name}" created successfully in ${guild.name}.`;
+	} catch (error) {
+		throw new Error(`Failed to create forum channel: ${error}`);
+	}
+}
+
+export async function createForumPost({
+	server,
+	channel,
+	title,
+	message,
+	tags = [],
+}: CreateForumPostData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		const forumChannel = guild.channels.cache.find(
+			(ch) => ch.name.toLowerCase() === channel.toLowerCase() && ch.type === 15,
+		);
+
+		if (!forumChannel || !('threads' in forumChannel)) {
+			return `Forum channel "${channel}" not found in ${guild.name}.`;
+		}
+
+		const threadOptions: any = {
+			name: title,
+			message: { content: message },
+		};
+
+		if (tags.length > 0 && 'availableTags' in forumChannel) {
+			const availableTags: any = forumChannel.availableTags;
+			const tagIds = availableTags
+				.filter((t: any) => tags.includes(t.name))
+				.map((t: any) => t.id)
+				.filter((id: any) => id !== null);
+
+			if (tagIds.length > 0) {
+				threadOptions.appliedTags = tagIds;
+			}
+		}
+
+		await forumChannel.threads.create(threadOptions);
+		return `Forum post "${title}" created successfully in ${channel}.`;
+	} catch (error) {
+		throw new Error(`Failed to create forum post: ${error}`);
+	}
+}
+
+const loggingConfig: Map<string, any> = new Map();
+
+export async function setupLogging({ server, logChannel, eventType, enabled }: LogEventData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		const targetChannel = await findChannelByName(guild, logChannel, 0);
+		if (!targetChannel) {
+			return `Log channel "${logChannel}" not found in ${guild.name}.`;
+		}
+
+		const key = `${guild.id}_${eventType}`;
+
+		if (enabled) {
+			loggingConfig.set(key, {
+				guildId: guild.id,
+				channelId: targetChannel.id,
+				eventType,
+			});
+			return `Logging enabled for ${eventType} events to ${logChannel} in ${guild.name}.`;
+		} else {
+			loggingConfig.delete(key);
+			return `Logging disabled for ${eventType} events in ${guild.name}.`;
+		}
+	} catch (error) {
+		throw new Error(`Failed to setup logging: ${error}`);
+	}
+}
+
+export function getLoggingConfig(guildId: string, eventType: string): any {
+	return loggingConfig.get(`${guildId}_${eventType}`);
+}
+
+export async function createCustomCommand({
+	server,
+	trigger,
+	response,
+	description,
+}: CreateCustomCommandData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		const existingCommands = await getCustomCommands(guild.id);
+		const normalizedTrigger = trigger.toLowerCase();
+
+		if (normalizedTrigger in existingCommands) {
+			return `Custom command "${trigger}" already exists in ${guild.name}.`;
+		}
+
+		const validation = validateMessageContent(response);
+		if (!validation.valid) {
+			return `Invalid response: ${validation.error}`;
+		}
+
+		await saveCustomCommandToStore(guild.id, {
+			trigger,
+			response,
+			description: description || `Custom command: ${trigger}`,
+			createdAt: new Date().toISOString(),
+		});
+
+		return `Custom command "${trigger}" created successfully in ${guild.name}.`;
+	} catch (error) {
+		throw new Error(`Failed to create custom command: ${error}`);
+	}
+}
+
+export async function deleteCustomCommand({ server, trigger }: DeleteCustomCommandData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		const deleted = await deleteCustomCommandFromStore(guild.id, trigger);
+
+		if (!deleted) {
+			return `Custom command "${trigger}" not found in ${guild.name}.`;
+		}
+
+		return `Custom command "${trigger}" deleted successfully from ${guild.name}.`;
+	} catch (error) {
+		throw new Error(`Failed to delete custom command: ${error}`);
+	}
+}
+
+export async function listCustomCommands({ server }: ListCustomCommandsData): Promise<string> {
+	const guild = await findServer(server);
+
+	try {
+		const commands = await getCustomCommands(guild.id);
+		const commandList = Object.values(commands);
+
+		if (commandList.length === 0) {
+			return `No custom commands found in ${guild.name}.`;
+		}
+
+		return JSON.stringify(commandList, null, 2);
+	} catch (error) {
+		throw new Error(`Failed to list custom commands: ${error}`);
+	}
+}
+
+export async function executeCustomCommand(guildId: string, trigger: string): Promise<string | null> {
+	const commands = await getCustomCommands(guildId);
+	const normalizedTrigger = trigger.toLowerCase();
+	const command = commands[normalizedTrigger];
+
+	return command ? command.response : null;
 }
