@@ -33,6 +33,33 @@ import {
 	listWebhooks,
 	deleteWebhook,
 	getBotInfo,
+	getAuditLogs,
+	createInvite,
+	listInvites,
+	deleteInvite,
+	addEmoji,
+	removeEmoji,
+	listEmojis,
+	unbanUser,
+	listBans,
+	updateServerSettings,
+	createEvent,
+	cancelEvent,
+	moveVoiceUser,
+	muteVoiceUser,
+	createThread,
+	archiveThread,
+	editMessage,
+	deleteMessage,
+	setSlowmode,
+	setNSFW,
+	createForumChannel,
+	createForumPost,
+	setupLogging,
+	createCustomCommand,
+	deleteCustomCommand,
+	listCustomCommands,
+	executeCustomCommand,
 } from '../discord/operations.js';
 import {
 	deleteChannel,
@@ -84,6 +111,32 @@ import type {
 	ListWebhooksData,
 	DeleteWebhookData,
 	GetBotInfoData,
+	AuditLogData,
+	InviteData,
+	ListInvitesData,
+	DeleteInviteData,
+	EmojiData,
+	RemoveEmojiData,
+	ListEmojisData,
+	UnbanUserData,
+	ListBansData,
+	UpdateServerSettingsData,
+	CreateEventData,
+	CancelEventData,
+	MoveVoiceUserData,
+	MuteVoiceUserData,
+	CreateThreadData,
+	ArchiveThreadData,
+	EditMessageData,
+	DeleteMessageData,
+	SetSlowmodeData,
+	SetNSFWData,
+	CreateForumChannelData,
+	CreateForumPostData,
+	LogEventData,
+	CreateCustomCommandData,
+	DeleteCustomCommandData,
+	ListCustomCommandsData,
 } from '../types/index.js';
 import { shouldShowConfirmation } from '../commands/utility/settings/confirmationModule.js';
 import { createAIConfirmation } from '../util/confirmationSystem.js';
@@ -240,6 +293,84 @@ const functionHandlers: Record<string, (...args: any[]) => Promise<any>> = {
 	},
 	getBotInfo: async (args: GetBotInfoData) => {
 		return await getBotInfo(args);
+	},
+	getAuditLogs: async (args: AuditLogData) => {
+		return await getAuditLogs(args);
+	},
+	createInvite: async (args: InviteData) => {
+		return await createInvite(args);
+	},
+	listInvites: async (args: ListInvitesData) => {
+		return await listInvites(args);
+	},
+	deleteInvite: async (args: DeleteInviteData) => {
+		return await deleteInvite(args);
+	},
+	addEmoji: async (args: EmojiData) => {
+		return await addEmoji(args);
+	},
+	removeEmoji: async (args: RemoveEmojiData) => {
+		return await removeEmoji(args);
+	},
+	listEmojis: async (args: ListEmojisData) => {
+		return await listEmojis(args);
+	},
+	unbanUser: async (args: UnbanUserData) => {
+		return await unbanUser(args);
+	},
+	listBans: async (args: ListBansData) => {
+		return await listBans(args);
+	},
+	updateServerSettings: async (args: UpdateServerSettingsData) => {
+		return await updateServerSettings(args);
+	},
+	createEvent: async (args: CreateEventData) => {
+		return await createEvent(args);
+	},
+	cancelEvent: async (args: CancelEventData) => {
+		return await cancelEvent(args);
+	},
+	moveVoiceUser: async (args: MoveVoiceUserData) => {
+		return await moveVoiceUser(args);
+	},
+	muteVoiceUser: async (args: MuteVoiceUserData) => {
+		return await muteVoiceUser(args);
+	},
+	createThread: async (args: CreateThreadData) => {
+		return await createThread(args);
+	},
+	archiveThread: async (args: ArchiveThreadData) => {
+		return await archiveThread(args);
+	},
+	editMessage: async (args: EditMessageData) => {
+		return await editMessage(args);
+	},
+	deleteMessage: async (args: DeleteMessageData) => {
+		return await deleteMessage(args);
+	},
+	setSlowmode: async (args: SetSlowmodeData) => {
+		return await setSlowmode(args);
+	},
+	setNSFW: async (args: SetNSFWData) => {
+		return await setNSFW(args);
+	},
+	createForumChannel: async (args: CreateForumChannelData) => {
+		return await createForumChannel(args);
+	},
+	createForumPost: async (args: CreateForumPostData) => {
+		return await createForumPost(args);
+	},
+	setupLogging: async (args: LogEventData) => {
+		return await setupLogging(args);
+	},
+	createCustomCommand: async (args: CreateCustomCommandData) => {
+		return await createCustomCommand(args);
+	},
+	deleteCustomCommand: async (args: DeleteCustomCommandData) => {
+		return await deleteCustomCommand(args);
+	},
+	listCustomCommands: async (args: ListCustomCommandsData) => {
+		return await listCustomCommands(args);
 	},
 	executeCode: async (args: { code: string }, message?: Message) => {
 		const settings = getCachedSettings();
@@ -661,6 +792,16 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 	if (!shouldProcessMessage(message)) return;
 
 	const userMessage = message.content;
+
+	const customResponse = await executeCustomCommand(message.guildId || '', userMessage);
+	if (customResponse) {
+		try {
+			await message.reply(customResponse);
+		} catch (error) {
+			console.error('Error sending custom command response:', error);
+		}
+		return;
+	}
 
 	try {
 		const tools = createAITools();
