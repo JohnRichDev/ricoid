@@ -316,3 +316,57 @@ export interface DeleteWebhookData extends ServerIdentifier {
 }
 
 export interface GetBotInfoData extends ServerIdentifier {}
+
+export interface EditMessageData extends ChannelIdentifier {
+	messageId: string;
+	newContent: string;
+}
+
+export interface DeleteMessageData extends ChannelIdentifier {
+	messageId: string;
+}
+
+export interface SetSlowmodeData extends ChannelIdentifier {
+	seconds: number;
+}
+
+export interface SetNSFWData extends ChannelIdentifier {
+	enabled: boolean;
+}
+
+export interface CreateForumChannelData extends ServerIdentifier {
+	channelName: string;
+	category?: string;
+	topic?: string;
+	tags?: string[];
+}
+
+export interface CreateForumPostData extends ChannelIdentifier {
+	title: string;
+	message: string;
+	tags?: string[];
+}
+
+export interface LogEventData extends ServerIdentifier {
+	logChannel: string;
+	eventType: 'message' | 'member' | 'channel' | 'role' | 'moderation' | 'all';
+	enabled: boolean;
+}
+
+export interface CreateCustomCommandData extends ServerIdentifier {
+	trigger: string;
+	response: string;
+	description?: string;
+}
+
+export interface DeleteCustomCommandData extends ServerIdentifier {
+	trigger: string;
+}
+
+export interface ListCustomCommandsData extends ServerIdentifier {}
+
+export interface ExecuteCustomCommandData extends ServerIdentifier {
+	trigger: string;
+	userId: string;
+	channelId: string;
+}
