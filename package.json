@@ -14,8 +14,10 @@
 	"dependencies": {
 		"@discordjs/core": "^2.1.1",
 		"@google/genai": "^1.15.0",
+		"cors": "^2.8.5",
 		"discord.js": "^14.20.0",
 		"dotenv": "^16.4.7",
+		"express": "^5.1.0",
 		"mime": "^4.0.7"
 	},
 	"devDependencies": {
