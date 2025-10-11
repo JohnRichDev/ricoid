@@ -373,81 +373,101 @@ const functionHandlers: Record<string, (...args: any[]) => Promise<any>> = {
 		return await listCustomCommands(args);
 	},
 	executeCode: async (args: { code: string }, message?: Message) => {
-		const settings = getCachedSettings();
-		if (shouldShowConfirmation(settings, 'code-execution')) {
-			if (!message) {
-				return 'Cannot execute code: No message context for confirmation.';
-			}
-
-			const displayCode = args.code.length > 1000 ? args.code.substring(0, 1000) + '...' : args.code;
-			const codeBlock = `\`\`\`javascript\n${displayCode}\n\`\`\``;
-
-			const confirmation = await createAIConfirmation(message.channelId, message.author.id, {
-				title: '⚠️ Execute Code',
-				description: `Are you sure you want to execute the following JavaScript code?\n\n${codeBlock}\n\n⚠️ **This code has full access to the Discord API and could perform dangerous operations.**`,
-				dangerous: true,
-				timeout: 30000,
-				confirmButtonLabel: 'Execute Code',
-			});
-
-			if (!confirmation.confirmed) {
-				if (confirmation.timedOut) {
-					return 'Code execution timed out - code was not executed.';
-				}
-				return 'Code execution cancelled - code was not executed.';
-			}
+		const confirmationResult = await handleCodeExecutionConfirmation(args.code, message);
+		if (confirmationResult) {
+			return confirmationResult;
 		}
 
-		const maxRetries = 3;
-		let lastError: string = '';
-
-		for (let attempt = 1; attempt <= maxRetries; attempt++) {
-			try {
-				const context = createContext({
-					console: console,
-					readMessages: async (count: number = 50) => {
-						if (!message) return 'No message context';
-						const result = await readDiscordMessages({
-							channel: message.channelId,
-							server: message.guildId || undefined,
-							messageCount: count,
-						});
-						try {
-							const messages = JSON.parse(result);
-							if (Array.isArray(messages)) {
-								return messages.map((msg: any) => `${msg.author}: ${msg.content}`).join('\\n');
-							}
-							return result;
-						} catch {
-							return result;
-						}
-					},
-					discordClient: discordClient,
-					currentChannel: message?.channelId,
-					currentServer: message?.guildId,
-				});
-
-				const wrappedCode = `(async () => { ${args.code} })()`;
-				const result = await runInContext(wrappedCode, context);
-				return `Code executed successfully. Result: ${result}`;
-			} catch (error) {
-				lastError = error instanceof Error ? error.message : 'Unknown error';
-				console.log(`executeCode attempt ${attempt} failed: ${lastError}`);
-
-				if (attempt < maxRetries) {
-					await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
-					continue;
-				}
-			}
-		}
-
-		return `Error executing code after ${maxRetries} attempts: ${lastError}`;
+		return await executeCodeWithRetries(args.code, message);
 	},
 	reloadSettings: async () => {
 		reloadSettings();
 		return 'Settings reloaded successfully! The bot will now use the updated configuration.';
 	},
 };
+
+async function handleCodeExecutionConfirmation(code: string, message?: Message): Promise<string | null> {
+	const settings = getCachedSettings();
+	if (!shouldShowConfirmation(settings, 'code-execution')) {
+		return null;
+	}
+
+	if (!message) {
+		return 'Cannot execute code: No message context for confirmation.';
+	}
+
+	const displayCode = code.length > 1000 ? code.substring(0, 1000) + '...' : code;
+	const codeBlock = `\`\`\`javascript\n${displayCode}\n\`\`\``;
+
+	const confirmation = await createAIConfirmation(message.channelId, message.author.id, {
+		title: '⚠️ Execute Code',
+		description: `Are you sure you want to execute the following JavaScript code?\n\n${codeBlock}\n\n⚠️ **This code has full access to the Discord API and could perform dangerous operations.**`,
+		dangerous: true,
+		timeout: 30000,
+		confirmButtonLabel: 'Execute Code',
+	});
+
+	if (!confirmation.confirmed) {
+		return confirmation.timedOut
+			? 'Code execution timed out - code was not executed.'
+			: 'Code execution cancelled - code was not executed.';
+	}
+
+	return null;
+}
+
+function createReadMessagesFunction(message?: Message) {
+	return async (count: number = 50) => {
+		if (!message) return 'No message context';
+		const result = await readDiscordMessages({
+			channel: message.channelId,
+			server: message.guildId || undefined,
+			messageCount: count,
+		});
+		try {
+			const messages = JSON.parse(result);
+			if (Array.isArray(messages)) {
+				return messages.map((msg: any) => `${msg.author}: ${msg.content}`).join('\\n');
+			}
+			return result;
+		} catch {
+			return result;
+		}
+	};
+}
+
+function createExecutionContext(message?: Message) {
+	return createContext({
+		console: console,
+		readMessages: createReadMessagesFunction(message),
+		discordClient: discordClient,
+		currentChannel: message?.channelId,
+		currentServer: message?.guildId,
+	});
+}
+
+async function executeCodeWithRetries(code: string, message?: Message): Promise<string> {
+	const maxRetries = 3;
+	let lastError: string = '';
+
+	for (let attempt = 1; attempt <= maxRetries; attempt++) {
+		try {
+			const context = createExecutionContext(message);
+			const wrappedCode = `(async () => { ${code} })()`;
+			const result = await runInContext(wrappedCode, context);
+			return `Code executed successfully. Result: ${result}`;
+		} catch (error) {
+			lastError = error instanceof Error ? error.message : 'Unknown error';
+			console.log(`executeCode attempt ${attempt} failed: ${lastError}`);
+
+			if (attempt < maxRetries) {
+				await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+			}
+		}
+	}
+
+	return `Error executing code after ${maxRetries} attempts: ${lastError}`;
+}
 
 function getChannelName(message: Message): string {
 	return message.channel?.isTextBased() && 'name' in message.channel && message.channel.name
