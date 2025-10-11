@@ -8,13 +8,7 @@ import {
 	saveReminder,
 	deleteReminder,
 } from '../util/settingsStore.js';
-import {
-	findMember as findMemberHelper,
-	validateMessageContent,
-	parseHexColor,
-	validateImageUrl,
-	generateId,
-} from '../util/helpers.js';
+import { validateMessageContent, parseHexColor, validateImageUrl, generateId } from '../util/helpers.js';
 import {
 	DISCORD_LIMITS,
 	POLL_EMOJIS,
@@ -1066,6 +1060,36 @@ function parsePermissions(permissions: string[]): bigint[] {
 	return validPermissions;
 }
 
+function buildPermissionOverwrites(allowBits: bigint[], denyBits: bigint[]): { [key: string]: boolean | null } {
+	const permissionOverwrites: { [key: string]: boolean | null } = {};
+
+	for (const bit of allowBits) {
+		const permName = Object.keys(PermissionFlagsBits).find(
+			(key) => PermissionFlagsBits[key as keyof typeof PermissionFlagsBits] === bit,
+		);
+		if (permName) {
+			permissionOverwrites[permName] = true;
+		}
+	}
+
+	for (const bit of denyBits) {
+		const permName = Object.keys(PermissionFlagsBits).find(
+			(key) => PermissionFlagsBits[key as keyof typeof PermissionFlagsBits] === bit,
+		);
+		if (permName) {
+			permissionOverwrites[permName] = false;
+		}
+	}
+
+	return permissionOverwrites;
+}
+
+function formatPermissionChanges(allow: string[], deny: string[]): string {
+	const allowMessage = allow.length > 0 ? `Allowed: ${allow.join(', ')}\n` : '';
+	const denyMessage = deny.length > 0 ? `Denied: ${deny.join(', ')}` : '';
+	return (allowMessage + denyMessage).trim();
+}
+
 export async function setChannelPermissions({
 	server,
 	channelName,
@@ -1077,10 +1101,7 @@ export async function setChannelPermissions({
 	const guild = await findServer(server);
 
 	try {
-		let channelTypeNum: number | undefined;
-		if (channelType === 'text') channelTypeNum = 0;
-		else if (channelType === 'voice') channelTypeNum = 2;
-		else if (channelType === 'category') channelTypeNum = 4;
+		const channelTypeNum = getChannelTypeNumber(channelType);
 
 		const channel = guild.channels.cache.find(
 			(channel) =>
@@ -1109,31 +1130,11 @@ export async function setChannelPermissions({
 			return `Channel "${channel.name}" does not support permission overwrites.`;
 		}
 
-		const permissionOverwrites: { [key: string]: boolean | null } = {};
-
-		for (const bit of allowBits) {
-			const permName = Object.keys(PermissionFlagsBits).find(
-				(key) => PermissionFlagsBits[key as keyof typeof PermissionFlagsBits] === bit,
-			);
-			if (permName) {
-				permissionOverwrites[permName] = true;
-			}
-		}
-
-		for (const bit of denyBits) {
-			const permName = Object.keys(PermissionFlagsBits).find(
-				(key) => PermissionFlagsBits[key as keyof typeof PermissionFlagsBits] === bit,
-			);
-			if (permName) {
-				permissionOverwrites[permName] = false;
-			}
-		}
+		const permissionOverwrites = buildPermissionOverwrites(allowBits, denyBits);
 
 		await channel.permissionOverwrites.edit(role, permissionOverwrites);
 
-		const allowMessage = allow.length > 0 ? `Allowed: ${allow.join(', ')}\n` : '';
-		const denyMessage = deny.length > 0 ? `Denied: ${deny.join(', ')}` : '';
-		const changesMessage = (allowMessage + denyMessage).trim();
+		const changesMessage = formatPermissionChanges(allow, deny);
 
 		return `Successfully updated permissions for role "${role.name}" in channel "${channel.name}".\n${changesMessage}`;
 	} catch (error) {
