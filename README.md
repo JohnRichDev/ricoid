@@ -34,6 +34,63 @@ Ricoid is a modular Discord bot designed to act as an intelligent assistant with
 - **Confirmation System**: Smart confirmation prompts for critical operations
 - **Comprehensive Error Handling**: Robust error management and recovery
 
+### Core Capabilities
+
+#### Channel Management
+
+- Create, delete, rename, and organize text and voice channels
+- Manage categories and channel hierarchies
+- Set channel topics, permissions, and configurations
+- Bulk channel operations with safety confirmations
+- Forum channels and thread management
+- Slowmode and NSFW settings
+
+#### User & Role Management
+
+- Access control with flexible user and role targeting
+- Add and remove roles with permission awareness
+- User moderation (ban, kick, timeout, mute)
+- View user information and server statistics
+- Move and manage voice channel users
+
+#### Server Administration
+
+- Comprehensive server information and statistics
+- Audit log access and event logging
+- Invite management and creation
+- Server settings configuration
+- Emoji and webhook management
+- Scheduled events creation and management
+
+#### Communication Tools
+
+- Send and read messages across channels
+- Message editing and deletion
+- Bulk message clearing with filters
+- Pin and reaction management
+- Poll creation with customizable options
+- Custom command system
+
+#### Utility Features
+
+- Reminders with flexible scheduling
+- Calculator for mathematical expressions
+- Interactive games
+- Target resolution (users, roles, mentions, IDs)
+- Conversation history tracking
+
+#### Configurable Settings
+
+- **Access Control**: Manage who can interact with the bot
+- **Channel Restrictions**: Limit bot responses to specific channels
+- **Custom Prompts**: Define bot personality and behavior
+- **Confirmation Preferences**: Configure safety prompts by operation type
+  - Role operations (create, edit, delete)
+  - Channel operations (create, edit, delete)
+  - User moderation and dangerous operations
+  - Bulk operations and code execution
+  - Enable/disable confirmations globally or per-type
+
 ## Prerequisites
 
 Before setting up Ricoid, ensure you have the following installed:
@@ -117,13 +174,23 @@ Before setting up Ricoid, ensure you have the following installed:
    - The bot will understand and execute tasks autonomously
    - Administrative permissions allow it to manage server settings, users, and channels
 
-3. **Examples of natural interactions**
+3. **Configure settings**
+
+   Use the `/settings` command to customize bot behavior:
+   - **Access**: Control who can use the bot (`/settings access view|add|remove @user`)
+   - **Channel**: Restrict bot to specific channels (`/settings channel set|reset #channel`)
+   - **Prompt**: Customize bot personality (`/settings prompt set|view|reset`)
+   - **Confirmations**: Manage safety prompts (`/settings confirmations view|enable|disable`)
+
+4. **Examples of natural interactions**
    - "Can you help me organize this channel?"
    - "Set up a welcome message for new members"
    - "Clean up the spam in this channel"
    - "Create a new role for moderators"
+   - "Show me the server statistics"
+   - "Set a reminder in 2 hours to check the logs"
 
-4. **Development mode**
+5. **Development mode**
 
    For development with auto-compilation:
 
@@ -131,7 +198,7 @@ Before setting up Ricoid, ensure you have the following installed:
    npm run build && npm start
    ```
 
-5. **Code formatting and linting**
+6. **Code formatting and linting**
    ```bash
    npm run format  # Format and fix code
    npm run lint    # Check code quality
@@ -153,6 +220,8 @@ Before setting up Ricoid, ensure you have the following installed:
 2. **Events**: Add new event handlers in the `src/events` directory
 3. **Utilities**: Add utility functions in the `src/util` directory
 4. **Configuration**: Modify settings in the `src/config` directory
+5. **AI Tools**: Extend bot capabilities by adding function declarations in `src/ai/index.ts`
+6. **Settings Modules**: Create new settings categories in `src/commands/utility/settings/`
 
 ## Project Structure
 
@@ -160,16 +229,37 @@ Before setting up Ricoid, ensure you have the following installed:
 ricoid/
 ├── data/                   # Data storage files
 │   ├── conversations.json  # Conversation history
-│   └── settings.json      # Bot settings
+│   └── settings.json      # Bot settings and preferences
 ├── src/                   # Source code
 │   ├── ai/               # AI integration modules
+│   │   ├── config.ts     # AI configuration
+│   │   └── index.ts      # AI tools and function declarations
 │   ├── commands/         # Command handlers
+│   │   └── utility/      # Utility commands
+│   │       └── settings/ # Settings command modules
 │   ├── config/           # Configuration files
+│   │   ├── app.ts        # Application configuration
+│   │   └── index.ts      # Config exports
 │   ├── discord/          # Discord client setup
+│   │   ├── client.ts     # Discord client instance
+│   │   ├── config.ts     # Discord configuration
+│   │   └── operations.ts # Discord API operations
 │   ├── events/           # Event handlers
+│   │   ├── ready.ts      # Bot ready event
+│   │   ├── messageCreate.ts # Message events
+│   │   ├── interactionCreate.ts # Interaction events
+│   │   └── utility/      # Event utilities
 │   ├── handlers/         # Message and interaction handlers
+│   │   └── messageHandler.ts # AI message processing
 │   ├── types/            # TypeScript type definitions
+│   │   └── index.ts      # Shared types
 │   └── util/             # Utility functions
+│       ├── confirmationSystem.ts # Interactive confirmations
+│       ├── confirmationTemplates.ts # Confirmation presets
+│       ├── confirmedOperations.ts # Protected operations
+│       ├── settingsStore.ts # Settings persistence
+│       ├── resolveTarget.ts # User/role resolution
+│       └── helpers.ts    # Helper utilities
 ├── package.json          # Project dependencies
 ├── tsconfig.json         # TypeScript configuration
 └── .env                  # Environment variables (not tracked)
