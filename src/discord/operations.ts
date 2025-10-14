@@ -462,7 +462,11 @@ export async function clearDiscordMessages({
 	channel,
 	messageCount = 100,
 }: ClearMessagesData): Promise<string> {
-	const textChannel = await findTextChannel(channel!, server);
+	if (!channel) {
+		throw new Error('Channel is required for clearing messages');
+	}
+
+	const textChannel = await findTextChannel(channel, server);
 
 	try {
 		const messages = await textChannel.messages.fetch({
