@@ -42,7 +42,7 @@ async function ensureDirAndFile() {
 
 	try {
 		await access(filePath);
-	} catch (error) {
+	} catch {
 		await writeFile(filePath, JSON.stringify({}, null, 2), 'utf8');
 	}
 }
@@ -61,7 +61,8 @@ export async function writeSettings(settings: StoredSettings): Promise<void> {
 	try {
 		await mkdir(dirname(filePath), { recursive: true });
 	} catch (error) {
-		console.warn('Failed to create directory for settings file:', error);
+		console.error('Failed to create directory for settings file:', error);
+		throw error;
 	}
 	await writeFile(filePath, JSON.stringify(settings, null, 2), 'utf8');
 }
@@ -99,7 +100,7 @@ async function ensureConversationFile() {
 
 	try {
 		await access(conversationFilePath);
-	} catch (error) {
+	} catch {
 		await writeFile(conversationFilePath, JSON.stringify({}, null, 2), 'utf8');
 	}
 }
