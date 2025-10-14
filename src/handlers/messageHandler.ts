@@ -488,7 +488,7 @@ async function checkMessageAndChannelAccess(message: Message): Promise<{
 		await message.fetch();
 	} catch (error) {
 		messageExists = false;
-		console.log('Original message no longer exists, will send regular message');
+		console.error('Original message no longer exists, will send regular message:', error);
 	}
 
 	try {
@@ -497,7 +497,7 @@ async function checkMessageAndChannelAccess(message: Message): Promise<{
 		}
 	} catch (error) {
 		channelExists = false;
-		console.log('Original channel no longer exists, finding suitable channel');
+		console.error('Original channel no longer exists, finding suitable channel:', error);
 		if (message.guildId) {
 			const suitableChannel = await findSuitableChannel(message.guildId);
 			if (suitableChannel) {
