@@ -109,9 +109,15 @@ export const accessModule: SettingsCategoryModule = {
 
 		switch (action) {
 			case 'add':
-				return handleAddAction(interaction, target as string, updatedSettings);
+				if (!target) {
+					return createResult(settings, 'Target is required for add action.');
+				}
+				return handleAddAction(interaction, target, updatedSettings);
 			case 'remove':
-				return handleRemoveAction(interaction, target as string, updatedSettings);
+				if (!target) {
+					return createResult(settings, 'Target is required for remove action.');
+				}
+				return handleRemoveAction(interaction, target, updatedSettings);
 			case 'view':
 				return handleViewAction(updatedSettings);
 			default:
