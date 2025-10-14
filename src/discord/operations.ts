@@ -1799,9 +1799,10 @@ export async function findSuitableChannel(guildId: string): Promise<TextChannel 
 		) as TextChannel;
 		if (mainChannel) return mainChannel;
 
-		const firstTextChannel = guild.channels.cache.find(
-			(channel) => channel.type === 0 && channel.permissionsFor(guild.members.me!)?.has('SendMessages'),
-		);
+		const firstTextChannel = guild.channels.cache.find((channel) => {
+			if (!guild.members.me) return false;
+			return channel.type === 0 && channel.permissionsFor(guild.members.me)?.has('SendMessages');
+		});
 		if (firstTextChannel) return firstTextChannel as TextChannel;
 
 		return null;
