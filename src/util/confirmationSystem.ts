@@ -129,6 +129,7 @@ export async function createConfirmation(
 			interaction: buttonInteraction,
 		};
 	} catch (error) {
+		console.error('Confirmation interaction error:', error);
 		const timeoutEmbed = new EmbedBuilder()
 			.setTitle(finalConfig.title)
 			.setDescription(`⏰ **Timed out** - ${finalConfig.description}`)
@@ -142,6 +143,7 @@ export async function createConfirmation(
 			});
 		} catch (editError) {
 			console.error('Failed to edit confirmation message on timeout:', editError);
+			throw editError;
 		}
 
 		return {
@@ -281,6 +283,7 @@ export async function createAIConfirmation(
 			interaction: buttonInteraction,
 		};
 	} catch (error) {
+		console.error('Confirmation interaction error:', error);
 		const timeoutEmbed = new EmbedBuilder()
 			.setTitle(finalConfig.title)
 			.setDescription(`⏰ **Timed out** - ${finalConfig.description}`)
@@ -294,6 +297,7 @@ export async function createAIConfirmation(
 			});
 		} catch (editError) {
 			console.error('Failed to edit confirmation message on timeout:', editError);
+			throw editError;
 		}
 
 		return {
