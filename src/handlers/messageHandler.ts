@@ -65,6 +65,7 @@ import {
 	deleteChannel,
 	deleteAllChannels,
 	clearDiscordMessages,
+	purgeChannel,
 	moderateUser,
 	manageUserRole,
 	bulkCreateChannels,
@@ -80,6 +81,7 @@ import type {
 	VoiceChannelData,
 	TextChannelData,
 	ClearMessagesData,
+	PurgeChannelData,
 	CategoryData,
 	DeleteChannelData,
 	DeleteAllChannelsData,
@@ -141,6 +143,8 @@ import type {
 import { shouldShowConfirmation } from '../commands/utility/settings/confirmationModule.js';
 import { createAIConfirmation } from '../util/confirmationSystem.js';
 
+let newChannelIdFromPurge: string | null = null;
+
 function setDefaultServer(args: any, messageGuildId: string): void {
 	if (!args.server) {
 		args.server = messageGuildId;
@@ -158,6 +162,10 @@ function normalizeChannelReference(args: any, messageChannelId: string, callName
 		}
 	} else if (callName === 'clearDiscordMessages') {
 		args.channel = messageChannelId;
+	} else if (callName === 'purgeChannel') {
+		if (!args.channel) {
+			args.channel = messageChannelId;
+		}
 	}
 }
 
@@ -239,6 +247,9 @@ const functionHandlers: Record<string, (...args: any[]) => Promise<any>> = {
 	},
 	clearDiscordMessages: async (args: ClearMessagesData) => {
 		return await clearDiscordMessages(args);
+	},
+	purgeChannel: async (args: PurgeChannelData) => {
+		return await purgeChannel(args);
 	},
 	getUserInfo: async (args: UserInfoData) => {
 		return await getUserInfo(args);
@@ -636,6 +647,15 @@ async function processFunctionCall(
 				} else {
 					result = await handler(normalizedArgs);
 				}
+
+				if (call.name === 'purgeChannel' && typeof result === 'string') {
+					const newChannelMatch = result.match(/NEW_CHANNEL_ID:(\d+)/);
+					if (newChannelMatch) {
+						newChannelIdFromPurge = newChannelMatch[1];
+						result = result.replace(/\s*NEW_CHANNEL_ID:\d+/, '');
+					}
+				}
+
 				functionResults.push({ name: call.name, result });
 				allFunctionResults.push({ name: call.name, result });
 				console.log(`Function call result for ${call.name}:`, result);
@@ -783,7 +803,29 @@ async function processAIResponse(
 }
 
 async function sendFinalResponse(message: Message, responseText: string): Promise<void> {
-	const { messageExists, channelExists, targetChannel } = await checkMessageAndChannelAccess(message);
+	let targetChannelOverride = null;
+
+	if (newChannelIdFromPurge) {
+		try {
+			targetChannelOverride = await discordClient.channels.fetch(newChannelIdFromPurge);
+			console.log(`Redirecting response to purged channel: ${newChannelIdFromPurge}`);
+		} catch (error) {
+			console.error('Failed to fetch new channel after purge:', error);
+		} finally {
+			newChannelIdFromPurge = null;
+		}
+	}
+
+	let messageExists = true;
+	let channelExists = true;
+	let targetChannel = targetChannelOverride;
+
+	if (!targetChannelOverride) {
+		const accessCheck = await checkMessageAndChannelAccess(message);
+		messageExists = accessCheck.messageExists;
+		channelExists = accessCheck.channelExists;
+		targetChannel = accessCheck.targetChannel;
+	}
 
 	if (!targetChannel) return;
 
