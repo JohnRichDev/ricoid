@@ -33,6 +33,10 @@ export interface ClearMessagesData extends ServerIdentifier {
 	messageCount?: number;
 }
 
+export interface PurgeChannelData extends ServerIdentifier {
+	channel: string;
+}
+
 export interface CategoryData extends ServerIdentifier {
 	categoryName: string;
 }
