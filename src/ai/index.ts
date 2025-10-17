@@ -459,7 +459,7 @@ export function createAITools() {
 			{
 				name: 'clearDiscordMessages',
 				description:
-					'Clear messages from a Discord channel. Can clear a specific number of messages or all messages in the channel.',
+					'Clear multiple messages from a Discord channel using bulk delete. IMPORTANT: Can only delete messages that are between 30 seconds and 2 weeks old (Discord API limitation). Cannot delete individual messages - use this for batch clearing only. If messages are too old or too new, this will fail.',
 				parameters: {
 					type: Type.OBJECT,
 					properties: {
@@ -473,10 +473,30 @@ export function createAITools() {
 						},
 						messageCount: {
 							type: Type.NUMBER,
-							description: 'Number of messages to clear (max 100). If not specified, clears up to 100 messages.',
+							description:
+								'Number of messages to fetch and attempt to clear (max 100, default 100). Only messages within the age limits will be deleted.',
 						},
 					},
 					required: [],
+				},
+			},
+			{
+				name: 'purgeChannel',
+				description:
+					"FORCE PURGE a Discord channel by cloning it and deleting the original. This PERMANENTLY removes ALL messages regardless of age, bypassing Discord's 2-week limitation. Use this when clearDiscordMessages fails due to old messages. WARNING: This is IRREVERSIBLE - all message history will be lost forever.",
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (optional if bot is only in one server)',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Channel name (e.g., "general") or ID to completely purge.',
+						},
+					},
+					required: ['channel'],
 				},
 			},
 			{
@@ -1257,7 +1277,8 @@ export function createAITools() {
 			},
 			{
 				name: 'deleteMessage',
-				description: 'Delete a specific message',
+				description:
+					'Delete a single specific message by its ID. ONLY use this when you have an exact message ID to delete (e.g., from editing a specific message). DO NOT use this to clear multiple messages - use clearDiscordMessages instead. Requires the exact numeric message ID (18-19 digits).',
 				parameters: {
 					type: Type.OBJECT,
 					properties: {
@@ -1267,11 +1288,11 @@ export function createAITools() {
 						},
 						channel: {
 							type: Type.STRING,
-							description: 'Channel name or ID',
+							description: 'Channel name or ID where the message exists',
 						},
 						messageId: {
 							type: Type.STRING,
-							description: 'ID of the message to delete',
+							description: 'The exact numeric ID of the specific message to delete (18-19 digits, not a channel ID)',
 						},
 					},
 					required: ['channel', 'messageId'],
