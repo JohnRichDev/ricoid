@@ -5,6 +5,7 @@ import {
 	deleteChannel as originalDeleteChannel,
 	deleteAllChannels as originalDeleteAllChannels,
 	clearDiscordMessages as originalClearDiscordMessages,
+	purgeChannel as originalPurgeChannel,
 	moderateUser as originalModerateUser,
 	manageUserRole as originalManageUserRole,
 	bulkCreateChannels as originalBulkCreateChannels,
@@ -16,6 +17,7 @@ import type {
 	DeleteChannelData,
 	DeleteAllChannelsData,
 	ClearMessagesData,
+	PurgeChannelData,
 	ModerationData,
 	RoleManagementData,
 	BulkCreateChannelsData,
@@ -119,6 +121,29 @@ export async function clearDiscordMessages(args: ClearMessagesData): Promise<str
 	}
 
 	return await originalClearDiscordMessages(args);
+}
+
+export async function purgeChannel(args: PurgeChannelData): Promise<string> {
+	if (!currentContext.channelId || !currentContext.userId) {
+		return await originalPurgeChannel(args);
+	}
+
+	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {
+		title: '💥 Purge Channel',
+		description: `Are you sure you want to **PURGE** **#${args.channel}**?\n\nThis will:\n• Clone the channel with all settings\n• Delete the original channel (removing ALL messages forever)\n• Bypasses Discord's 2-week message age limit\n\n⚠️ **This action CANNOT be undone! ALL messages will be permanently lost!**`,
+		dangerous: true,
+		timeout: 45000,
+		confirmButtonLabel: 'Purge Channel',
+	});
+
+	if (!confirmation.confirmed) {
+		if (confirmation.timedOut) {
+			return `Channel purge timed out - #${args.channel} was not purged.`;
+		}
+		return `Channel purge cancelled - #${args.channel} was not purged.`;
+	}
+
+	return await originalPurgeChannel(args);
 }
 
 export async function moderateUser(args: ModerationData): Promise<string> {
