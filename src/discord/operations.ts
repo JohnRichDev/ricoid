@@ -23,6 +23,7 @@ import type {
 	TextChannelData,
 	VoiceChannelData,
 	ClearMessagesData,
+	PurgeChannelData,
 	CategoryData,
 	DeleteChannelData,
 	DeleteAllChannelsData,
@@ -480,7 +481,21 @@ export async function clearDiscordMessages({
 		);
 
 		if (deletableMessages.size === 0) {
-			return `No messages found in #${textChannel.name} that can be deleted (messages older than 2 weeks or newer than 30 seconds cannot be bulk deleted).`;
+			const tooOld = messages.filter((msg) => msg.createdTimestamp <= twoWeeksAgo).size;
+			const tooNew = messages.filter((msg) => msg.createdTimestamp >= thirtySecondsAgo).size;
+
+			let reason = '';
+			if (tooOld > 0 && tooNew > 0) {
+				reason = `${tooOld} messages are older than 2 weeks and ${tooNew} are newer than 30 seconds`;
+			} else if (tooOld > 0) {
+				reason = `all ${tooOld} messages are older than 2 weeks`;
+			} else if (tooNew > 0) {
+				reason = `all ${tooNew} messages are newer than 30 seconds`;
+			} else {
+				reason = 'no messages found';
+			}
+
+			return `Cannot bulk delete messages in #${textChannel.name} because ${reason}. Discord's bulk delete only works on messages between 30 seconds and 2 weeks old. Wait a moment for recent messages to age, or try again later for older messages.`;
 		}
 
 		const deletedCount = await textChannel.bulkDelete(deletableMessages, true);
@@ -488,6 +503,48 @@ export async function clearDiscordMessages({
 		return `Successfully cleared ${deletedCount.size} messages from #${textChannel.name} in ${textChannel.guild.name}.`;
 	} catch (error) {
 		throw new Error(`Failed to clear messages: ${error}`);
+	}
+}
+
+export async function purgeChannel({ server, channel }: PurgeChannelData): Promise<string> {
+	if (!channel) {
+		throw new Error('Channel is required for purging');
+	}
+
+	const textChannel = await findTextChannel(channel, server);
+	const guild = textChannel.guild;
+
+	try {
+		const channelName = textChannel.name;
+		const channelTopic = textChannel.topic;
+		const channelPosition = textChannel.position;
+		const channelParent = textChannel.parent;
+		const channelNsfw = textChannel.nsfw;
+		const channelRateLimitPerUser = textChannel.rateLimitPerUser;
+		const channelPermissionOverwrites = textChannel.permissionOverwrites.cache.map((overwrite) => ({
+			id: overwrite.id,
+			type: overwrite.type,
+			allow: overwrite.allow.bitfield,
+			deny: overwrite.deny.bitfield,
+		}));
+
+		const newChannel = await guild.channels.create({
+			name: channelName,
+			type: 0,
+			topic: channelTopic || undefined,
+			parent: channelParent?.id,
+			position: channelPosition,
+			nsfw: channelNsfw,
+			rateLimitPerUser: channelRateLimitPerUser,
+			permissionOverwrites: channelPermissionOverwrites,
+		});
+
+		await textChannel.delete();
+
+		const parentInfo = channelParent ? ` in category "${channelParent.name}"` : '';
+		return `Successfully purged #${channelName}${parentInfo} in ${guild.name}. All messages have been permanently removed by cloning and deleting the original channel. NEW_CHANNEL_ID:${newChannel.id}`;
+	} catch (error) {
+		throw new Error(`Failed to purge channel: ${error}`);
 	}
 }
 
