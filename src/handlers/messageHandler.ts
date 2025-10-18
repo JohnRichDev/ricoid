@@ -622,6 +622,26 @@ function buildConversationContext(
 	return conversation;
 }
 
+function extractNewChannelId(result: string): { newChannelId: string | null; cleanedResult: string } {
+	const regex = /NEW_CHANNEL_ID:(\d+)/;
+	const newChannelMatch = regex.exec(result);
+	if (newChannelMatch) {
+		return {
+			newChannelId: newChannelMatch[1],
+			cleanedResult: result.replace(/\s*NEW_CHANNEL_ID:\d+/, ''),
+		};
+	}
+	return { newChannelId: null, cleanedResult: result };
+}
+
+async function executeFunctionHandler(call: any, message: Message, handler: Function): Promise<any> {
+	const normalizedArgs = normalizeChannelArgs(call.args, message.channelId, message.guildId || '', call.name);
+	if (call.name === 'executeCode') {
+		return await handler(normalizedArgs, message);
+	}
+	return await handler(normalizedArgs);
+}
+
 async function processFunctionCall(
 	call: any,
 	message: Message,
@@ -632,43 +652,38 @@ async function processFunctionCall(
 		if (!call.args || !call.name) return;
 
 		const handler = functionHandlers[call.name];
-		if (handler) {
-			setOperationContext({
-				message,
-				userId: message.author.id,
-				channelId: message.channelId,
-			});
-
-			try {
-				const normalizedArgs = normalizeChannelArgs(call.args, message.channelId, message.guildId || '', call.name);
-				let result;
-				if (call.name === 'executeCode') {
-					result = await handler(normalizedArgs, message);
-				} else {
-					result = await handler(normalizedArgs);
-				}
-
-				if (call.name === 'purgeChannel' && typeof result === 'string') {
-					const newChannelMatch = result.match(/NEW_CHANNEL_ID:(\d+)/);
-					if (newChannelMatch) {
-						newChannelIdFromPurge = newChannelMatch[1];
-						result = result.replace(/\s*NEW_CHANNEL_ID:\d+/, '');
-					}
-				}
-
-				functionResults.push({ name: call.name, result });
-				allFunctionResults.push({ name: call.name, result });
-				console.log(`Function call result for ${call.name}:`, result);
-
-				await new Promise((resolve) => setTimeout(resolve, 500));
-			} finally {
-				clearOperationContext();
-			}
-		} else {
+		if (!handler) {
 			console.warn(`Unknown function: ${call.name}`);
 			const errorResult = { error: `Unknown function: ${call.name}` };
 			functionResults.push({ name: call.name, result: errorResult });
 			allFunctionResults.push({ name: call.name, result: errorResult });
+			return;
+		}
+
+		setOperationContext({
+			message,
+			userId: message.author.id,
+			channelId: message.channelId,
+		});
+
+		try {
+			let result = await executeFunctionHandler(call, message, handler);
+
+			if (call.name === 'purgeChannel' && typeof result === 'string') {
+				const { newChannelId, cleanedResult } = extractNewChannelId(result);
+				if (newChannelId) {
+					newChannelIdFromPurge = newChannelId;
+					result = cleanedResult;
+				}
+			}
+
+			functionResults.push({ name: call.name, result });
+			allFunctionResults.push({ name: call.name, result });
+			console.log(`Function call result for ${call.name}:`, result);
+
+			await new Promise((resolve) => setTimeout(resolve, 500));
+		} finally {
+			clearOperationContext();
 		}
 	} catch (error) {
 		console.error('Call error:', error);
