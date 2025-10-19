@@ -17,6 +17,7 @@ import {
 	CHANNEL_TYPES,
 	REMINDER_MAX_DELAY_MS,
 } from '../util/constants.js';
+import { performSearch } from '../ai/search.js';
 import type {
 	MessageData,
 	MessageHistory,
@@ -2649,4 +2650,24 @@ export async function executeCustomCommand(guildId: string, trigger: string): Pr
 	const command = commands[normalizedTrigger];
 
 	return command ? command.response : null;
+}
+
+export async function search(data: {
+	query: string;
+	type: 'web' | 'images' | 'news';
+	limit?: number;
+}): Promise<string> {
+	try {
+		const { query, type, limit } = data;
+
+		if (!query || query.trim().length === 0) {
+			return 'Please provide a search query.';
+		}
+
+		const result = await performSearch(query, type, limit);
+		return result;
+	} catch (error: any) {
+		console.error('Search operation error:', error);
+		return `Search failed: ${error.message || 'Unknown error'}`;
+	}
 }
