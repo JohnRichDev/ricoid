@@ -742,6 +742,29 @@ export function createAITools() {
 					required: ['expression'],
 				},
 			},
+			{
+				name: 'search',
+				description: 'Search the web, images, or news using Google Gemini AI with code execution capabilities',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						query: {
+							type: Type.STRING,
+							description: 'Search query to look for',
+						},
+						type: {
+							type: Type.STRING,
+							description: 'Type of search to perform',
+							enum: ['web', 'images', 'news'],
+						},
+						limit: {
+							type: Type.NUMBER,
+							description: 'Maximum number of results to return (optional)',
+						},
+					},
+					required: ['query', 'type'],
+				},
+			},
 
 			{
 				name: 'getServerStats',
