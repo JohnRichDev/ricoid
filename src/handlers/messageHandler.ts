@@ -60,6 +60,7 @@ import {
 	deleteCustomCommand,
 	listCustomCommands,
 	executeCustomCommand,
+	search,
 } from '../discord/operations.js';
 import {
 	deleteChannel,
@@ -104,6 +105,7 @@ import type {
 	ReminderData,
 	GameData,
 	CalculatorData,
+	SearchData,
 	ServerStatsData,
 	CreateRoleData,
 	EditRoleData,
@@ -277,6 +279,9 @@ const functionHandlers: Record<string, (...args: any[]) => Promise<any>> = {
 	},
 	calculate: async (args: CalculatorData) => {
 		return await calculate(args);
+	},
+	search: async (args: SearchData) => {
+		return await search(args);
 	},
 	getServerStats: async (args: ServerStatsData) => {
 		return await getServerStats(args);
@@ -760,23 +765,45 @@ async function generateAIContent(
 	message: Message,
 	allFunctionResults: Array<{ name: string; result: any }>,
 ): Promise<{ hasMoreFunctionCalls: boolean; responseText: string }> {
-	const response = await aiClient.models.generateContent({
-		model: modelName,
-		config,
-		contents: conversation,
-	});
+	const maxRetries = 3;
+	const retryDelay = 2000;
+	let lastError;
 
-	const { hasFunctionCalls: hasCurrentFunctionCalls } = await processFunctionCalls(
-		response,
-		message,
-		conversation,
-		allFunctionResults,
-	);
+	for (let attempt = 1; attempt <= maxRetries; attempt++) {
+		try {
+			const response = await aiClient.models.generateContent({
+				model: modelName,
+				config,
+				contents: conversation,
+			});
 
-	return {
-		hasMoreFunctionCalls: hasCurrentFunctionCalls,
-		responseText: hasCurrentFunctionCalls ? '' : extractResponseText(response),
-	};
+			const { hasFunctionCalls: hasCurrentFunctionCalls } = await processFunctionCalls(
+				response,
+				message,
+				conversation,
+				allFunctionResults,
+			);
+
+			return {
+				hasMoreFunctionCalls: hasCurrentFunctionCalls,
+				responseText: hasCurrentFunctionCalls ? '' : extractResponseText(response),
+			};
+		} catch (error) {
+			lastError = error;
+			const statusCode = error && typeof error === 'object' && 'status' in error ? (error as any).status : null;
+
+			const isRetriable = statusCode === 502 || statusCode === 503 || statusCode === 504 || statusCode === 429;
+
+			if (isRetriable && attempt < maxRetries) {
+				console.log(`API call failed with status ${statusCode}. Retrying (attempt ${attempt}/${maxRetries})...`);
+				await new Promise((resolve) => setTimeout(resolve, retryDelay * attempt));
+			} else {
+				throw error;
+			}
+		}
+	}
+
+	throw lastError;
 }
 
 async function processAIResponse(
@@ -886,19 +913,33 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 		const modelName = 'gemini-2.5-flash-lite';
 
 		const channelName = getChannelName(message);
-		const contextualMessage = `Current channel: ${channelName} (ID: ${message.channelId})\nUser message: ${userMessage}`;
+		const userName = message.author.username;
+		const displayName = message.member?.displayName || message.author.displayName || userName;
+		const userId = message.author.id;
+
+		const contextualMessage = `Current channel: ${channelName} (ID: ${message.channelId})
+Current user: ${displayName} (@${userName}, ID: ${userId})
+
+🎯 **CURRENT USER REQUEST (MOST IMPORTANT - ANSWER THIS):**
+User @${userName} says: ${userMessage}
+
+⚠️ CRITICAL: You are responding to @${userName}. Focus ONLY on their current request above. Previous messages from OTHER users are just context - do NOT answer their old questions unless @${userName} is asking about them.`;
 
 		const textChannel = message.channel as TextChannel;
-		const fetchedMessages = await textChannel.messages.fetch({ limit: 20, before: message.id });
+		const fetchedMessages = await textChannel.messages.fetch({ limit: 10, before: message.id });
 		const conversationHistory = Array.from(fetchedMessages.values())
 			.sort((a, b) => a.createdTimestamp - b.createdTimestamp)
 			.filter((msg) => !msg.author.bot && msg.content.trim())
-			.slice(-15)
-			.map((msg) => ({
-				role: 'user' as const,
-				parts: [{ text: `User message: ${msg.content}` }],
-				timestamp: msg.createdTimestamp,
-			}));
+			.slice(-3)
+			.map((msg) => {
+				const author = msg.author.username;
+				const isCurrentUser = msg.author.id === userId;
+				return {
+					role: 'user' as const,
+					parts: [{ text: `${isCurrentUser ? '[SAME USER] ' : '[DIFFERENT USER] '}@${author}: ${msg.content}` }],
+					timestamp: msg.createdTimestamp,
+				};
+			});
 
 		const conversation = buildConversationContext(contextualMessage, conversationHistory);
 
@@ -912,7 +953,24 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 		const { messageExists, channelExists, targetChannel } = await checkMessageAndChannelAccess(message);
 
 		if (targetChannel) {
-			const errorMessage = 'Sorry, I encountered an error processing your message.';
+			let errorMessage = 'Sorry, I encountered an error processing your message.';
+
+			if (error && typeof error === 'object' && 'status' in error) {
+				const statusCode = (error as any).status;
+				if (statusCode === 502 || statusCode === 503 || statusCode === 504) {
+					errorMessage =
+						"I'm having trouble connecting to my AI service right now (temporary server error). Please try again in a moment! 🔄";
+				} else if (statusCode === 429) {
+					errorMessage = "I'm receiving too many requests right now. Please wait a moment and try again! ⏳";
+				} else if (statusCode >= 500) {
+					errorMessage = 'My AI service is experiencing issues. Please try again shortly! 🛠️';
+				} else if (statusCode === 401 || statusCode === 403) {
+					errorMessage =
+						"I'm having authentication issues with my AI service. Please contact the bot administrator! 🔐";
+					console.error('CRITICAL: API authentication error. Check your API key configuration.');
+				}
+			}
+
 			await sendResponseMessage(message, errorMessage, messageExists, channelExists, targetChannel);
 		}
 	}
