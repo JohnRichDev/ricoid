@@ -1,5 +1,5 @@
 export const aiConfig = {
-	model: 'gemini-2.5-flash-lite',
+	model: 'gemini-flash-latest',
 
 	maxRecentMessages: 10,
 
