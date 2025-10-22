@@ -929,16 +929,26 @@ User @${userName} says: ${userMessage}
 		const fetchedMessages = await textChannel.messages.fetch({ limit: 10, before: message.id });
 		const conversationHistory = Array.from(fetchedMessages.values())
 			.sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-			.filter((msg) => !msg.author.bot && msg.content.trim())
-			.slice(-3)
+			.filter((msg) => msg.content.trim())
+			.slice(-6)
 			.map((msg) => {
 				const author = msg.author.username;
+				const isBot = msg.author.bot;
 				const isCurrentUser = msg.author.id === userId;
-				return {
-					role: 'user' as const,
-					parts: [{ text: `${isCurrentUser ? '[SAME USER] ' : '[DIFFERENT USER] '}@${author}: ${msg.content}` }],
-					timestamp: msg.createdTimestamp,
-				};
+
+				if (isBot) {
+					return {
+						role: 'model' as const,
+						parts: [{ text: msg.content }],
+						timestamp: msg.createdTimestamp,
+					};
+				} else {
+					return {
+						role: 'user' as const,
+						parts: [{ text: `${isCurrentUser ? '[SAME USER] ' : '[DIFFERENT USER] '}@${author}: ${msg.content}` }],
+						timestamp: msg.createdTimestamp,
+					};
+				}
 			});
 
 		const conversation = buildConversationContext(contextualMessage, conversationHistory);
