@@ -23,7 +23,8 @@ export async function performSearch(query: string, type: 'web' | 'images' | 'new
 				Keep your response SHORT - aim for 2-4 sentences with only the most essential information.
 				Focus on factual, up-to-date information. Be direct and to the point.
 				Search type: ${type}
-				${limit ? `Limit results to approximately ${limit} items.` : ''}`,
+				${limit ? `Limit results to approximately ${limit} items.` : ''}
+				${type === 'images' ? '\n**CRITICAL FOR IMAGE SEARCHES**: You MUST provide actual image URLs. Find and return direct links to images (URLs ending in .jpg, .png, .webp, etc.) that the user can view. Format your response as a list of image URLs, one per line. Do NOT just describe what images might look like - provide actual working URLs.' : ''}`,
 			},
 		],
 	};
@@ -108,7 +109,7 @@ function generateSearchPrompt(query: string, type: 'web' | 'images' | 'news', li
 			return `Perform a web search for: "${query}"${limitText}. Provide the most relevant and up-to-date information available. Include key facts, sources if possible, and organize the information clearly.`;
 
 		case 'images':
-			return `Search for images related to: "${query}"${limitText}. Describe what types of images would be most relevant, provide context about the subject, and suggest what someone might want to see when searching for this topic.`;
+			return `Search for images of: "${query}"${limitText}. **CRITICAL**: You MUST find and return actual, working image URLs. Use Google Search to find images and extract their direct URLs (links ending in .jpg, .png, .webp, .gif, etc.). Provide a list of image URLs, one per line, that users can click to view the images. Do NOT describe what images would look like - provide ACTUAL URLs. If you find image results, extract and return their direct URLs.`;
 
 		case 'news':
 			return `Search for recent news about: "${query}"${limitText}. Focus on current events, recent developments, and the latest information. Provide headlines, key points, and dates when relevant.`;

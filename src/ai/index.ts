@@ -744,7 +744,8 @@ export function createAITools() {
 			},
 			{
 				name: 'search',
-				description: 'Search the web, images, or news using Google Gemini AI with code execution capabilities',
+				description:
+					'Search the web, images, or news using Google Gemini AI with code execution capabilities. For image searches, returns actual image URLs that can be shared with users.',
 				parameters: {
 					type: Type.OBJECT,
 					properties: {
@@ -754,7 +755,7 @@ export function createAITools() {
 						},
 						type: {
 							type: Type.STRING,
-							description: 'Type of search to perform',
+							description: 'Type of search to perform. Use "images" to find and return image URLs.',
 							enum: ['web', 'images', 'news'],
 						},
 						limit: {
