@@ -41,13 +41,14 @@ export function createAITools() {
 			{
 				name: 'readDiscordMessages',
 				description:
-					'Read messages from a Discord channel. Can fetch recent messages or find the first/oldest messages in chronological order.',
+					'Read messages from a Discord channel. Can fetch recent messages or find the first/oldest messages in chronological order. IMPORTANT: If the user mentions a specific server name or provides a server ID, you MUST include the server parameter in your function call.',
 				parameters: {
 					type: Type.OBJECT,
 					properties: {
 						server: {
 							type: Type.STRING,
-							description: 'Server name or ID (defaults to current server)',
+							description:
+								'Server name or ID. REQUIRED if user specifies a different server than the current one. Use the server ID (snowflake) if provided, or the server name mentioned by the user.',
 						},
 						channel: {
 							type: Type.STRING,
@@ -483,7 +484,7 @@ export function createAITools() {
 			{
 				name: 'purgeChannel',
 				description:
-					"FORCE PURGE a Discord channel by cloning it and deleting the original. This PERMANENTLY removes ALL messages regardless of age, bypassing Discord's 2-week limitation. Use this when clearDiscordMessages fails due to old messages. WARNING: This is IRREVERSIBLE - all message history will be lost forever.",
+					"FORCE PURGE a Discord channel. This PERMANENTLY removes ALL messages regardless of age, bypassing Discord's 2-week limitation. Use this when clearDiscordMessages fails due to old messages. WARNING: This is IRREVERSIBLE - all message history will be lost forever.",
 				parameters: {
 					type: Type.OBJECT,
 					properties: {
@@ -730,13 +731,15 @@ export function createAITools() {
 			},
 			{
 				name: 'calculate',
-				description: 'Perform mathematical calculations',
+				description:
+					'Perform mathematical calculations using standard math functions. Supports: basic arithmetic (+,-,*,/), trigonometric functions (sin, cos, tan), logarithms (log, log10), power/root (pow, sqrt, cbrt), rounding (abs, ceil, floor, round), and constants (pi or PI for π, e or E for Euler\'s number). CANNOT find specific digits of pi or other constants - use executeCode for that. Use direct function calls without Math prefix (e.g., "sin(pi/4)" not "Math.sin(Math.PI/4)").',
 				parameters: {
 					type: Type.OBJECT,
 					properties: {
 						expression: {
 							type: Type.STRING,
-							description: 'Mathematical expression to evaluate (e.g., "2 + 2 * 3", "sin(45)", "sqrt(16)")',
+							description:
+								'Mathematical expression to evaluate. Examples: "2 + 2 * 3", "sin(pi/4)", "sqrt(16)", "pow(2,10)", "pi * 2". Do NOT use Math.PI or Math.sin - use pi and sin directly.',
 						},
 					},
 					required: ['expression'],
@@ -764,6 +767,52 @@ export function createAITools() {
 						},
 					},
 					required: ['query', 'type'],
+				},
+			},
+			{
+				name: 'DFINT',
+				description:
+					'Digital Footprint Intelligence - Tool for comprehensive web intelligence gathering. Searches across multiple search engines (Google, Bing, DuckDuckGo, Yahoo), scrapes web content, and provides AI-analyzed intelligence reports. Use this for deep research, background checks, or gathering comprehensive information about any topic.',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						query: {
+							type: Type.STRING,
+							description: 'Search query or subject to investigate',
+						},
+						depth: {
+							type: Type.STRING,
+							description:
+								'Analysis depth: "shallow" for quick overview, "moderate" for balanced analysis (default), "deep" for comprehensive investigation',
+							enum: ['shallow', 'moderate', 'deep'],
+						},
+						includeImages: {
+							type: Type.BOOLEAN,
+							description: 'Include image URLs in the intelligence report',
+						},
+						includeNews: {
+							type: Type.BOOLEAN,
+							description: 'Include recent news and developments in the report',
+						},
+						maxResults: {
+							type: Type.NUMBER,
+							description: 'Maximum number of results to gather (default: 10)',
+						},
+						engines: {
+							type: Type.ARRAY,
+							description: 'Search engines to use. Options: google, bing, duckduckgo, yahoo',
+							items: {
+								type: Type.STRING,
+								enum: ['google', 'bing', 'duckduckgo', 'yahoo'],
+							},
+						},
+						scrapeResults: {
+							type: Type.BOOLEAN,
+							description:
+								'Enable web scraping to extract content from top search results (slower but more comprehensive)',
+						},
+					},
+					required: ['query'],
 				},
 			},
 
@@ -1520,16 +1569,41 @@ export function createAITools() {
 			{
 				name: 'executeCode',
 				description:
-					'Execute arbitrary JavaScript code in a safe context. Use this for calculations, string manipulation, or other code execution needs.',
+					'Execute JavaScript code for calculations, data processing, and getting real-time information (e.g., current date/time with new Date()). Use this for any computation or when you need current system information. Mark as risky if code performs Discord operations, data modifications, or sends messages.',
 				parameters: {
 					type: Type.OBJECT,
 					properties: {
 						code: {
 							type: Type.STRING,
-							description: 'The JavaScript code to execute',
+							description:
+								'JavaScript code to execute. For current date/time use: new Date().toLocaleString() or new Date().toDateString()',
+						},
+						risky: {
+							type: Type.BOOLEAN,
+							description:
+								'Set to true if code performs Discord operations (sending messages, deleting, modifying data). Set to false for safe operations like date/time, calculations, or reading data.',
 						},
 					},
-					required: ['code'],
+					required: ['code', 'risky'],
+				},
+			},
+			{
+				name: 'fetchAPI',
+				description:
+					'Fetch data from free public APIs (no API keys required). Use this to get real-time information from any publicly accessible API endpoint.',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						url: {
+							type: Type.STRING,
+							description: 'The full URL of the API endpoint to fetch (must include https://).',
+						},
+						description: {
+							type: Type.STRING,
+							description: 'Brief description of what data you are fetching.',
+						},
+					},
+					required: ['url', 'description'],
 				},
 			},
 		],
