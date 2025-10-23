@@ -1627,3 +1627,5 @@ export function createAIConfig(settings: BotSettings, tools: any[]) {
 export function createAIClient(apiKey: string): GoogleGenAI {
 	return new GoogleGenAI({ apiKey });
 }
+
+export { DFINT } from './search.js';
