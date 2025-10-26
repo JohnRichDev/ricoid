@@ -17,7 +17,7 @@ import {
 	CHANNEL_TYPES,
 	REMINDER_MAX_DELAY_MS,
 } from '../util/constants.js';
-import { performSearch } from '../ai/search.js';
+import { performSearch, DFINT } from '../ai/search.js';
 import type {
 	MessageData,
 	MessageHistory,
@@ -209,39 +209,51 @@ export async function findServer(serverId?: string): Promise<Guild> {
 export async function findTextChannel(channelId: string, serverId?: string): Promise<TextChannel> {
 	const server = await findServer(serverId);
 
-	try {
-		const channel = await discordClient.channels.fetch(channelId);
-		if (channel instanceof TextChannel && channel.guild.id === server.id) {
-			return channel;
+	if (/^\d{17,19}$/.test(channelId)) {
+		try {
+			const channel = await discordClient.channels.fetch(channelId);
+			if (channel instanceof TextChannel) {
+				if (channel.guild.id === server.id) {
+					return channel;
+				}
+				throw new Error(`Channel "${channelId}" exists but belongs to "${channel.guild.name}", not "${server.name}"`);
+			}
+			throw new Error(`Channel "${channelId}" exists in "${server.name}" but is not a text channel`);
+		} catch (error) {
+			if (error instanceof Error && error.message.includes('exists but')) {
+				throw error;
+			}
 		}
-	} catch {
-		const channels = server.channels.cache.filter(
-			(channel): channel is TextChannel =>
-				channel instanceof TextChannel &&
-				(channel.name.toLowerCase() === channelId.toLowerCase() ||
-					channel.name.toLowerCase() === channelId.toLowerCase().replace('#', '') ||
-					channel.name.toLowerCase().includes(channelId.toLowerCase())),
-		);
-
-		if (channels.size === 0) {
-			const availableChannels = server.channels.cache
-				.filter((c): c is TextChannel => c instanceof TextChannel)
-				.map((c) => `"#${c.name}"`)
-				.join(', ');
-			throw new Error(`Channel "${channelId}" not found in "${server.name}". Available: ${availableChannels}`);
-		}
-		if (channels.size > 1) {
-			const channelList = channels.map((c) => `#${c.name} (${c.id})`).join(', ');
-			throw new Error(`Multiple channels found in "${server.name}": ${channelList}. Use ID.`);
-		}
-		return channels.first()!;
 	}
-	throw new Error(`Channel "${channelId}" not found in "${server.name}"`);
+
+	const channels = server.channels.cache.filter(
+		(channel): channel is TextChannel =>
+			channel instanceof TextChannel &&
+			(channel.name.toLowerCase() === channelId.toLowerCase() ||
+				channel.name.toLowerCase() === channelId.toLowerCase().replace('#', '') ||
+				channel.name.toLowerCase().includes(channelId.toLowerCase())),
+	);
+
+	if (channels.size === 0) {
+		const availableChannels = server.channels.cache
+			.filter((c): c is TextChannel => c instanceof TextChannel)
+			.map((c) => `"#${c.name}"`)
+			.join(', ');
+		throw new Error(`Channel "${channelId}" not found in "${server.name}". Available: ${availableChannels}`);
+	}
+	if (channels.size > 1) {
+		const channelList = channels.map((c) => `#${c.name} (${c.id})`).join(', ');
+		throw new Error(`Multiple channels found in "${server.name}": ${channelList}. Use ID.`);
+	}
+	return channels.first()!;
 }
 
 export async function sendDiscordMessage({ server, channel, message }: MessageData): Promise<string> {
 	const textChannel = await findTextChannel(channel, server);
-	const sentMessage = await textChannel.send(message);
+	const sentMessage = await textChannel.send({
+		content: message,
+		allowedMentions: { parse: ['users', 'roles', 'everyone'] as const },
+	});
 	return `Sent to #${textChannel.name} in ${textChannel.guild.name}. ID: ${sentMessage.id}`;
 }
 
@@ -543,7 +555,7 @@ export async function purgeChannel({ server, channel }: PurgeChannelData): Promi
 		await textChannel.delete();
 
 		const parentInfo = channelParent ? ` in category "${channelParent.name}"` : '';
-		return `Successfully purged #${channelName}${parentInfo} in ${guild.name}. All messages have been permanently removed by cloning and deleting the original channel. NEW_CHANNEL_ID:${newChannel.id}`;
+		return `I've permanently deleted all messages in #${channelName}${parentInfo}. The message history is now gone. NEW_CHANNEL_ID:${newChannel.id}`;
 	} catch (error) {
 		throw new Error(`Failed to purge channel: ${error}`);
 	}
@@ -1488,7 +1500,10 @@ export async function createPoll({ server, channel, question, options, duration 
 			pollMessage += `\n⏰ Poll ends in ${duration} minutes`;
 		}
 
-		const sentMessage = await textChannel.send(pollMessage);
+		const sentMessage = await textChannel.send({
+			content: pollMessage,
+			allowedMentions: { parse: ['users', 'roles', 'everyone'] as const },
+		});
 
 		for (let i = 0; i < options.length; i++) {
 			await sentMessage.react(POLL_EMOJIS[i]);
@@ -1630,10 +1645,15 @@ async function sendReminderMessage(message: string, targetChannel: TextChannel |
 		reminderMessage = `<@${targetUser.id}> ${reminderMessage}`;
 	}
 
+	const messageOptions = {
+		content: reminderMessage,
+		allowedMentions: { parse: ['users', 'roles', 'everyone'] as const },
+	};
+
 	if (targetChannel) {
-		await targetChannel.send(reminderMessage);
+		await targetChannel.send(messageOptions);
 	} else if (targetUser) {
-		await targetUser.send(reminderMessage);
+		await targetUser.send(messageOptions);
 	} else {
 		console.error('Could not find a channel or user to send reminder to');
 	}
@@ -1725,9 +1745,48 @@ export async function initializeReminders(): Promise<void> {
 
 export async function calculate({ expression }: CalculatorData): Promise<string> {
 	try {
-		const sanitizedExpression = expression.replace(/[^0-9+\-*/().\s]/g, '');
+		const mathContext = {
+			Math: Math,
+			PI: Math.PI,
+			pi: Math.PI,
+			E: Math.E,
+			e: Math.E,
+			sin: Math.sin,
+			cos: Math.cos,
+			tan: Math.tan,
+			asin: Math.asin,
+			acos: Math.acos,
+			atan: Math.atan,
+			atan2: Math.atan2,
+			sinh: Math.sinh,
+			cosh: Math.cosh,
+			tanh: Math.tanh,
+			asinh: Math.asinh,
+			acosh: Math.acosh,
+			atanh: Math.atanh,
+			exp: Math.exp,
+			log: Math.log,
+			log10: Math.log10,
+			log2: Math.log2,
+			pow: Math.pow,
+			sqrt: Math.sqrt,
+			cbrt: Math.cbrt,
+			abs: Math.abs,
+			ceil: Math.ceil,
+			floor: Math.floor,
+			round: Math.round,
+			trunc: Math.trunc,
+			min: Math.min,
+			max: Math.max,
+			random: Math.random,
+			sign: Math.sign,
+		};
 
-		const result = Function('"use strict"; return (' + sanitizedExpression + ')')();
+		const sanitizedExpression = expression.replace(/[^a-zA-Z0-9+\-*/().,\s]/g, '');
+
+		const func = new Function(...Object.keys(mathContext), `"use strict"; return (${sanitizedExpression})`);
+
+		const result = func(...Object.values(mathContext));
 
 		if (typeof result !== 'number' || isNaN(result)) {
 			return 'Invalid mathematical expression. Please try again.';
@@ -2669,5 +2728,46 @@ export async function search(data: {
 	} catch (error: any) {
 		console.error('Search operation error:', error);
 		return `Search failed: ${error.message || 'Unknown error'}`;
+	}
+}
+
+export async function dfint(data: {
+	query: string;
+	depth?: 'shallow' | 'moderate' | 'deep';
+	includeImages?: boolean;
+	includeNews?: boolean;
+	maxResults?: number;
+	engines?: Array<'google' | 'bing' | 'duckduckgo' | 'yahoo'>;
+	scrapeResults?: boolean;
+}): Promise<string> {
+	try {
+		const { query, depth, includeImages, includeNews, maxResults, engines, scrapeResults } = data;
+
+		if (!query || query.trim().length === 0) {
+			return 'Please provide a search query for DFINT.';
+		}
+
+		console.log(`[DFINT] Running intelligence query: "${query}" with options:`, {
+			depth,
+			includeImages,
+			includeNews,
+			maxResults,
+			engines,
+			scrapeResults,
+		});
+
+		const result = await DFINT(query, {
+			depth,
+			includeImages,
+			includeNews,
+			maxResults,
+			engines,
+			scrapeResults,
+		});
+
+		return result;
+	} catch (error: any) {
+		console.error('DFINT operation error:', error);
+		return `DFINT failed: ${error.message || 'Unknown error'}`;
 	}
 }
