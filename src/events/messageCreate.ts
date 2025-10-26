@@ -15,6 +15,16 @@ export default {
 			return;
 		}
 
+		const botMentioned = message.mentions.has(message.client.user!.id);
+		const isReplyToBot = message.reference?.messageId
+			? (await message.channel.messages.fetch(message.reference.messageId).catch(() => null))?.author.id ===
+				message.client.user!.id
+			: false;
+
+		if (!botMentioned && !isReplyToBot) {
+			return;
+		}
+
 		console.log(`Message received from ${message.author.tag}: ${message.content}`);
 
 		const apiKey = process.env.GEMINI_API_KEY;
