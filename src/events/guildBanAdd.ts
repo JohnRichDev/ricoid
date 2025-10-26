@@ -20,6 +20,7 @@ export default {
 
 			await logChannel.send({
 				content: `🔨 **User Banned**\n**User:** ${user}\n**Reason:** ${reason}\n**Time:** ${new Date().toISOString()}`,
+				allowedMentions: { parse: ['users', 'roles', 'everyone'] as const },
 			});
 		} catch (error) {
 			console.error('Error logging ban:', error);

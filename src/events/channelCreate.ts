@@ -22,6 +22,7 @@ export default {
 
 			await logChannel.send({
 				content: `➕ **Channel Created**\n**Name:** ${channelName}\n**Type:** ${channelType}\n**Time:** ${new Date().toISOString()}`,
+				allowedMentions: { parse: ['users', 'roles', 'everyone'] as const },
 			});
 		} catch (error) {
 			console.error('Error logging channel creation:', error);

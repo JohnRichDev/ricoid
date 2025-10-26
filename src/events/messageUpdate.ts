@@ -25,6 +25,7 @@ export default {
 
 			await logChannel.send({
 				content: `📝 **Message Edited**\n**Author:** ${author}\n**Channel:** #${channel}\n**Before:** ${oldContent}\n**After:** ${newContent}\n**Time:** ${new Date().toISOString()}`,
+				allowedMentions: { parse: ['users', 'roles', 'everyone'] as const },
 			});
 		} catch (error) {
 			console.error('Error logging message edit:', error);

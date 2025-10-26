@@ -20,6 +20,7 @@ export default {
 
 			await logChannel.send({
 				content: `👋 **Member Left**\n**User:** ${user}\n**Joined:** ${joinedAt}\n**Left:** ${new Date().toISOString()}`,
+				allowedMentions: { parse: ['users', 'roles', 'everyone'] as const },
 			});
 		} catch (error) {
 			console.error('Error logging member removal:', error);

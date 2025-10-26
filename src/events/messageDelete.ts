@@ -23,6 +23,7 @@ export default {
 
 			await logChannel.send({
 				content: `🗑️ **Message Deleted**\n**Author:** ${author}\n**Channel:** #${channel}\n**Content:** ${content}\n**Time:** ${new Date().toISOString()}`,
+				allowedMentions: { parse: ['users', 'roles', 'everyone'] as const },
 			});
 		} catch (error) {
 			console.error('Error logging message deletion:', error);

@@ -23,6 +23,7 @@ export default {
 			if (oldName !== newName) {
 				await logChannel.send({
 					content: `📝 **Channel Updated**\n**Old Name:** ${oldName}\n**New Name:** ${newName}\n**Time:** ${new Date().toISOString()}`,
+					allowedMentions: { parse: ['users', 'roles', 'everyone'] as const },
 				});
 			}
 		} catch (error) {
