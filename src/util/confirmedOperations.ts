@@ -1,6 +1,7 @@
 import { Message } from 'discord.js';
 import { createAIConfirmation } from './confirmationSystem.js';
 import { ConfirmationTemplates } from './confirmationTemplates.js';
+import { generateConfirmationContent } from '../ai/responseGenerator.js';
 import {
 	deleteChannel as originalDeleteChannel,
 	deleteAllChannels as originalDeleteAllChannels,
@@ -44,6 +45,35 @@ export function clearOperationContext() {
 	currentContext = {};
 }
 
+async function withAIConfirmation<T>(
+	args: any,
+	originalOperation: (args: T) => Promise<string>,
+	confirmationType: string,
+	confirmationDetails: Record<string, any>,
+	cancelMessage: string,
+	timeoutMessage: string,
+): Promise<string> {
+	if (!currentContext.channelId || !currentContext.userId) {
+		return await originalOperation(args);
+	}
+
+	const content = await generateConfirmationContent(confirmationType, confirmationDetails);
+	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {
+		title: content.title,
+		description: content.description,
+		dangerous: confirmationDetails.dangerous ?? true,
+		timeout: confirmationDetails.timeout ?? 30000,
+		confirmButtonLabel: content.confirmButtonLabel,
+		cancelButtonLabel: content.cancelButtonLabel,
+	});
+
+	if (!confirmation.confirmed) {
+		return confirmation.timedOut ? timeoutMessage : cancelMessage;
+	}
+
+	return await originalOperation(args);
+}
+
 export async function deleteChannel(args: DeleteChannelData): Promise<string> {
 	if (!currentContext.channelId || !currentContext.userId) {
 		return await originalDeleteChannel(args);
@@ -68,82 +98,59 @@ export async function deleteChannel(args: DeleteChannelData): Promise<string> {
 }
 
 export async function deleteAllChannels(args: DeleteAllChannelsData): Promise<string> {
-	if (!currentContext.channelId || !currentContext.userId) {
-		return await originalDeleteAllChannels(args);
-	}
-
-	const excludeText =
-		args.excludeChannels && args.excludeChannels.length > 0
-			? `\n\n**Excluded channels:** ${args.excludeChannels.join(', ')}`
-			: '';
-
-	const excludeCatText =
-		args.excludeCategories && args.excludeCategories.length > 0
-			? `\n\n**Excluded categories:** ${args.excludeCategories.join(', ')}`
-			: '';
-
-	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {
-		title: '🚨 Delete ALL Channels',
-		description: `Are you sure you want to delete **ALL** channels in the server?${excludeText}${excludeCatText}\n\n⚠️ **This action cannot be undone and will remove ALL channels!**`,
-		dangerous: true,
-		timeout: 45000,
-		confirmButtonLabel: 'Delete All',
-	});
-
-	if (!confirmation.confirmed) {
-		if (confirmation.timedOut) {
-			return 'Mass channel deletion timed out - no channels were deleted.';
-		}
-		return 'Mass channel deletion cancelled - no channels were deleted.';
-	}
-
-	return await originalDeleteAllChannels(args);
+	return withAIConfirmation(
+		args,
+		originalDeleteAllChannels,
+		'delete_all_channels',
+		{
+			scope: 'all channels in server',
+			excludeChannels: args.excludeChannels || [],
+			excludeCategories: args.excludeCategories || [],
+			permanent: true,
+			dangerous: true,
+			massiveDeletion: true,
+			timeout: 45000,
+		},
+		'Mass channel deletion cancelled - no channels were deleted.',
+		'Mass channel deletion timed out - no channels were deleted.',
+	);
 }
 
 export async function clearDiscordMessages(args: ClearMessagesData): Promise<string> {
-	if (!currentContext.channelId || !currentContext.userId) {
-		return await originalClearDiscordMessages(args);
-	}
-
 	const messageCount = args.messageCount || 100;
-	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {
-		title: '🧹 Clear Messages',
-		description: `Are you sure you want to clear **${messageCount}** messages from **#${args.channel}**?\n\nThis action cannot be undone.`,
-		dangerous: true,
-		confirmButtonLabel: 'Clear Messages',
-	});
-
-	if (!confirmation.confirmed) {
-		if (confirmation.timedOut) {
-			return `Message clearing timed out - no messages were deleted from #${args.channel}.`;
-		}
-		return `Message clearing cancelled - no messages were deleted from #${args.channel}.`;
-	}
-
-	return await originalClearDiscordMessages(args);
+	return withAIConfirmation(
+		args,
+		originalClearDiscordMessages,
+		'clear_messages',
+		{
+			channel: args.channel,
+			messageCount,
+			permanent: true,
+			dangerous: true,
+		},
+		`Message clearing cancelled - no messages were deleted from #${args.channel}.`,
+		`Message clearing timed out - no messages were deleted from #${args.channel}.`,
+	);
 }
 
 export async function purgeChannel(args: PurgeChannelData): Promise<string> {
-	if (!currentContext.channelId || !currentContext.userId) {
-		return await originalPurgeChannel(args);
-	}
-
-	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {
-		title: '💥 Purge Channel',
-		description: `Are you sure you want to **PURGE** **#${args.channel}**?\n\nThis will:\n• Clone the channel with all settings\n• Delete the original channel (removing ALL messages forever)\n• Bypasses Discord's 2-week message age limit\n\n⚠️ **This action CANNOT be undone! ALL messages will be permanently lost!**`,
-		dangerous: true,
-		timeout: 45000,
-		confirmButtonLabel: 'Purge Channel',
-	});
-
-	if (!confirmation.confirmed) {
-		if (confirmation.timedOut) {
-			return `Channel purge timed out - #${args.channel} was not purged.`;
-		}
-		return `Channel purge cancelled - #${args.channel} was not purged.`;
-	}
-
-	return await originalPurgeChannel(args);
+	return withAIConfirmation(
+		args,
+		originalPurgeChannel,
+		'purge_channel',
+		{
+			channel: args.channel,
+			operation: 'clone and delete original',
+			removesAllMessages: true,
+			bypassesAgeLimit: true,
+			permanent: true,
+			dangerous: true,
+			criticalOperation: true,
+			timeout: 45000,
+		},
+		`Channel purge cancelled - #${args.channel} was not purged.`,
+		`Channel purge timed out - #${args.channel} was not purged.`,
+	);
 }
 
 export async function moderateUser(args: ModerationData): Promise<string> {
@@ -156,26 +163,20 @@ export async function moderateUser(args: ModerationData): Promise<string> {
 		return await originalModerateUser(args);
 	}
 
-	const actionEmojis: { [key: string]: string } = {
-		ban: '🔨',
-		kick: '👢',
-		timeout: '⏰',
-	};
-
-	const actionDescriptions: { [key: string]: string } = {
-		ban: 'permanently ban',
-		kick: 'kick',
-		timeout: 'timeout',
-	};
-
-	const reasonText = args.reason ? `**Reason:** ${args.reason}` : 'No reason provided.';
-	const description = `Are you sure you want to **${actionDescriptions[args.action]}** **${args.user}**?\n\n${reasonText}\n\nThis moderation action will be logged.`;
+	const content = await generateConfirmationContent('moderation', {
+		action: args.action,
+		user: args.user,
+		reason: args.reason || 'No reason provided',
+		willBeLogged: true,
+		dangerous: true,
+	});
 
 	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {
-		title: `${actionEmojis[args.action]} ${args.action.charAt(0).toUpperCase() + args.action.slice(1)} User`,
-		description,
+		title: content.title,
+		description: content.description,
 		dangerous: true,
-		confirmButtonLabel: args.action.charAt(0).toUpperCase() + args.action.slice(1),
+		confirmButtonLabel: content.confirmButtonLabel,
+		cancelButtonLabel: content.cancelButtonLabel,
 	});
 
 	if (!confirmation.confirmed) {
@@ -200,15 +201,20 @@ export async function manageUserRole(args: RoleManagementData): Promise<string> 
 		return await originalManageUserRole(args);
 	}
 
-	const actionEmoji = args.action === 'add' ? '➕' : '➖';
-	const actionText = args.action === 'add' ? 'give' : 'remove';
-	const roleTypeText = isDangerousRole ? ' (admin/mod role)' : '';
+	const content = await generateConfirmationContent('role_management', {
+		action: args.action,
+		roleName: args.roleName,
+		user: args.user,
+		isAdminRole: isDangerousRole,
+		affectsPermissions: true,
+	});
 
 	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {
-		title: `${actionEmoji} ${args.action === 'add' ? 'Add' : 'Remove'} Role`,
-		description: `Are you sure you want to **${actionText}** the role **${args.roleName}**${roleTypeText} ${args.action === 'add' ? 'to' : 'from'} **${args.user}**?\n\nThis will change their permissions in the server.`,
+		title: content.title,
+		description: content.description,
 		dangerous: isDangerousRole || args.action === 'remove',
-		confirmButtonLabel: args.action === 'add' ? 'Add Role' : 'Remove Role',
+		confirmButtonLabel: content.confirmButtonLabel,
+		cancelButtonLabel: content.cancelButtonLabel,
 	});
 
 	if (!confirmation.confirmed) {
@@ -232,14 +238,20 @@ export async function bulkCreateChannels(args: BulkCreateChannelsData): Promise<
 		return await originalBulkCreateChannels(args);
 	}
 
-	const textChannelsList = args.textChannels?.length ? `\n**Text channels:** ${args.textChannels.join(', ')}` : '';
-	const voiceChannelsList = args.voiceChannels?.length ? `\n**Voice channels:** ${args.voiceChannels.join(', ')}` : '';
+	const content = await generateConfirmationContent('bulk_create_channels', {
+		totalChannels,
+		category: args.category,
+		textChannels: args.textChannels || [],
+		voiceChannels: args.voiceChannels || [],
+		bulkOperation: true,
+	});
 
 	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {
-		title: '📁 Create Multiple Channels',
-		description: `Are you sure you want to create **${totalChannels} channels** in the **${args.category}** category?${textChannelsList}${voiceChannelsList}\n\nThis will create multiple channels at once.`,
+		title: content.title,
+		description: content.description,
 		dangerous: false,
-		confirmButtonLabel: 'Create Channels',
+		confirmButtonLabel: content.confirmButtonLabel,
+		cancelButtonLabel: content.cancelButtonLabel,
 	});
 
 	if (!confirmation.confirmed) {
@@ -259,15 +271,19 @@ export async function createRole(args: CreateRoleData): Promise<string> {
 		return await originalCreateRole(args);
 	}
 
-	const colorText = args.color ? `\n**Color:** ${args.color}` : '';
-	const permissionsText = args.permissions?.length ? `\n**Permissions:** ${args.permissions.join(', ')}` : '';
-	const description = `Are you sure you want to create the role **${args.name}**?${colorText}${permissionsText}\n\nThis will create a new role in the server.`;
+	const content = await generateConfirmationContent('create_role', {
+		name: args.name,
+		color: args.color,
+		permissions: args.permissions || [],
+		operation: 'create new role',
+	});
 
 	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {
-		title: '✨ Create Role',
-		description,
+		title: content.title,
+		description: content.description,
 		dangerous: false,
-		confirmButtonLabel: 'Create Role',
+		confirmButtonLabel: content.confirmButtonLabel,
+		cancelButtonLabel: content.cancelButtonLabel,
 	});
 
 	if (!confirmation.confirmed) {
@@ -287,18 +303,19 @@ export async function editRole(args: EditRoleData): Promise<string> {
 		return await originalEditRole(args);
 	}
 
-	const changes: string[] = [];
-	if (args.newName) changes.push(`Name: **${args.newName}**`);
-	if (args.newColor) changes.push(`Color: **${args.newColor}**`);
-	const changeItems = changes.map((c) => `• ${c}`).join('\n');
-	const changesText = changes.length ? `\n**Changes:**\n${changeItems}` : '';
-	const description = `Are you sure you want to edit the role **${args.roleName}**?${changesText}\n\nThis will modify the role settings.`;
+	const content = await generateConfirmationContent('edit_role', {
+		roleName: args.roleName,
+		newName: args.newName,
+		newColor: args.newColor,
+		operation: 'modify role settings',
+	});
 
 	const confirmation = await createAIConfirmation(currentContext.channelId, currentContext.userId, {
-		title: '✏️ Edit Role',
-		description,
+		title: content.title,
+		description: content.description,
 		dangerous: false,
-		confirmButtonLabel: 'Edit Role',
+		confirmButtonLabel: content.confirmButtonLabel,
+		cancelButtonLabel: content.cancelButtonLabel,
 	});
 
 	if (!confirmation.confirmed) {
