@@ -166,11 +166,20 @@ export async function createDeletionConfirmation(
 	itemName: string,
 	itemType: string = 'item',
 ): Promise<ConfirmationResult> {
-	return createAIConfirmation(channelId, userId, {
-		title: `🗑️ Delete ${itemType}`,
-		description: `Are you sure you want to delete **${itemName}**?\n\nThis action cannot be undone.`,
+	const { generateConfirmationContent } = await import('../ai/responseGenerator.js');
+	const content = await generateConfirmationContent('delete', {
+		itemName,
+		itemType,
+		permanent: true,
 		dangerous: true,
-		confirmButtonLabel: 'Delete',
+	});
+
+	return createAIConfirmation(channelId, userId, {
+		title: content.title,
+		description: content.description,
+		dangerous: true,
+		confirmButtonLabel: content.confirmButtonLabel,
+		cancelButtonLabel: content.cancelButtonLabel,
 	});
 }
 
@@ -181,20 +190,20 @@ export async function createModerationConfirmation(
 	target: string,
 	reason?: string,
 ): Promise<ConfirmationResult> {
-	const actionEmojis: { [key: string]: string } = {
-		ban: '🔨',
-		kick: '👢',
-		timeout: '⏰',
-		mute: '🔇',
-		warn: '⚠️',
-	};
+	const { generateConfirmationContent } = await import('../ai/responseGenerator.js');
+	const content = await generateConfirmationContent('moderation', {
+		action,
+		targetUser: target,
+		reason: reason || 'No reason provided',
+		willBeLogged: true,
+	});
 
-	const reasonText = reason ? `**Reason:** ${reason}` : 'No reason provided.';
 	return createAIConfirmation(channelId, userId, {
-		title: `${actionEmojis[action] || '🛡️'} ${action.charAt(0).toUpperCase() + action.slice(1)} User`,
-		description: `Are you sure you want to **${action}** **${target}**?\n\n${reasonText}\n\nThis moderation action will be logged.`,
+		title: content.title,
+		description: content.description,
 		dangerous: true,
-		confirmButtonLabel: action.charAt(0).toUpperCase() + action.slice(1),
+		confirmButtonLabel: content.confirmButtonLabel,
+		cancelButtonLabel: content.cancelButtonLabel,
 	});
 }
 
@@ -205,13 +214,22 @@ export async function createBulkOperationConfirmation(
 	count: number,
 	details?: string,
 ): Promise<ConfirmationResult> {
-	const detailsText = details ? `\n\n${details}` : '';
+	const { generateConfirmationContent } = await import('../ai/responseGenerator.js');
+	const content = await generateConfirmationContent('bulk_operation', {
+		operation,
+		count,
+		details,
+		isLargeOperation: count > 20,
+		affectsMultipleItems: true,
+	});
+
 	return createAIConfirmation(channelId, userId, {
-		title: `📦 Bulk ${operation}`,
-		description: `Are you sure you want to perform **${operation}** on **${count} items**?${detailsText}\n\nThis will affect multiple items at once.`,
+		title: content.title,
+		description: content.description,
 		dangerous: count > 10,
 		timeout: count > 20 ? 45000 : 30000,
-		confirmButtonLabel: operation.toLowerCase().includes('delete') ? 'Delete All' : 'Proceed',
+		confirmButtonLabel: content.confirmButtonLabel,
+		cancelButtonLabel: content.cancelButtonLabel,
 	});
 }
 
