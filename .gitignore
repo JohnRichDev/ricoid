@@ -37,3 +37,6 @@ coverage/
 
 # data - settings.json
 data
+
+# .github
+.github
