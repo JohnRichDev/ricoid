@@ -1,6 +1,6 @@
 import { Message, TextChannel } from 'discord.js';
 import { GoogleGenAI } from '@google/genai';
-import { createContext, runInContext } from 'vm';
+import { Script, createContext } from 'vm';
 import { getCachedSettings, reloadSettings } from '../config/index.js';
 import { createAIConfig, createAITools } from '../ai/index.js';
 import { discordClient } from '../discord/client.js';
@@ -61,6 +61,7 @@ import {
 	listCustomCommands,
 	executeCustomCommand,
 	search,
+	dfint,
 } from '../discord/operations.js';
 import {
 	deleteChannel,
@@ -76,72 +77,6 @@ import {
 	setOperationContext,
 	clearOperationContext,
 } from '../util/confirmedOperations.js';
-import type {
-	MessageData,
-	MessageHistory,
-	VoiceChannelData,
-	TextChannelData,
-	ClearMessagesData,
-	PurgeChannelData,
-	CategoryData,
-	DeleteChannelData,
-	DeleteAllChannelsData,
-	ListChannelsData,
-	MoveChannelData,
-	ReorderChannelData,
-	ReorderChannelsData,
-	RenameChannelData,
-	SetChannelTopicData,
-	SetAllChannelTopicsData,
-	BulkCreateChannelsData,
-	ServerInfoData,
-	SetChannelPermissionsData,
-	UserInfoData,
-	RoleManagementData,
-	ModerationData,
-	ReactionData,
-	PinData,
-	PollData,
-	ReminderData,
-	GameData,
-	CalculatorData,
-	SearchData,
-	ServerStatsData,
-	CreateRoleData,
-	EditRoleData,
-	DeleteRoleData,
-	ListRolesData,
-	CreateWebhookData,
-	ListWebhooksData,
-	DeleteWebhookData,
-	GetBotInfoData,
-	AuditLogData,
-	InviteData,
-	ListInvitesData,
-	DeleteInviteData,
-	EmojiData,
-	RemoveEmojiData,
-	ListEmojisData,
-	UnbanUserData,
-	ListBansData,
-	UpdateServerSettingsData,
-	CreateEventData,
-	CancelEventData,
-	MoveVoiceUserData,
-	MuteVoiceUserData,
-	CreateThreadData,
-	ArchiveThreadData,
-	EditMessageData,
-	DeleteMessageData,
-	SetSlowmodeData,
-	SetNSFWData,
-	CreateForumChannelData,
-	CreateForumPostData,
-	LogEventData,
-	CreateCustomCommandData,
-	DeleteCustomCommandData,
-	ListCustomCommandsData,
-} from '../types/index.js';
 import { shouldShowConfirmation } from '../commands/utility/settings/confirmationModule.js';
 import { createAIConfirmation } from '../util/confirmationSystem.js';
 
@@ -171,17 +106,7 @@ function normalizeChannelReference(args: any, messageChannelId: string, callName
 	}
 }
 
-function validateAndCleanServer(args: any): void {
-	if ('server' in args && args.server) {
-		const isSnowflakeId = /^\d{17,19}$/.test(args.server);
-		if (isSnowflakeId) {
-			const isValidServer = discordClient.guilds.cache.has(args.server);
-			if (!isValidServer) {
-				delete args.server;
-			}
-		}
-	}
-}
+function validateAndCleanServer(_args: any): void {}
 
 function normalizeChannelArgs(args: any, messageChannelId: string, messageGuildId: string, callName?: string): any {
 	if (!args || typeof args !== 'object') {
@@ -195,206 +120,110 @@ function normalizeChannelArgs(args: any, messageChannelId: string, messageGuildI
 	return args;
 }
 
+const createSimpleHandler = (fn: Function) => async (args: any) => await fn(args);
+
 const functionHandlers: Record<string, (...args: any[]) => Promise<any>> = {
-	sendDiscordMessage: async (args: MessageData) => {
-		return await sendDiscordMessage(args);
-	},
-	readDiscordMessages: async (args: MessageHistory) => {
-		return await readDiscordMessages(args);
-	},
-	createVoiceChannel: async (args: VoiceChannelData) => {
-		return await createVoiceChannel(args);
-	},
-	createTextChannel: async (args: TextChannelData) => {
-		return await createTextChannel(args);
-	},
-	createCategory: async (args: CategoryData) => {
-		return await createCategory(args);
-	},
-	deleteChannel: async (args: DeleteChannelData) => {
-		return await deleteChannel(args);
-	},
-	deleteAllChannels: async (args: DeleteAllChannelsData) => {
-		return await deleteAllChannels(args);
-	},
-	listChannels: async (args: ListChannelsData) => {
-		return await listChannels(args);
-	},
-	moveChannel: async (args: MoveChannelData) => {
-		return await moveChannel(args);
-	},
-	reorderChannel: async (args: ReorderChannelData) => {
-		return await reorderChannel(args);
-	},
-	reorderChannels: async (args: ReorderChannelsData) => {
-		return await reorderChannels(args);
-	},
-	renameChannel: async (args: RenameChannelData) => {
-		return await renameChannel(args);
-	},
-	setChannelTopic: async (args: SetChannelTopicData) => {
-		return await setChannelTopic(args);
-	},
-	setAllChannelTopics: async (args: SetAllChannelTopicsData) => {
-		return await setAllChannelTopics(args);
-	},
-	bulkCreateChannels: async (args: BulkCreateChannelsData) => {
-		return await bulkCreateChannels(args);
-	},
-	getServerInfo: async (args: ServerInfoData) => {
-		return await getServerInfo(args);
-	},
-	setChannelPermissions: async (args: SetChannelPermissionsData) => {
-		return await setChannelPermissions(args);
-	},
-	clearDiscordMessages: async (args: ClearMessagesData) => {
-		return await clearDiscordMessages(args);
-	},
-	purgeChannel: async (args: PurgeChannelData) => {
-		return await purgeChannel(args);
-	},
-	getUserInfo: async (args: UserInfoData) => {
-		return await getUserInfo(args);
-	},
-	manageUserRole: async (args: RoleManagementData) => {
-		return await manageUserRole(args);
-	},
-	moderateUser: async (args: ModerationData) => {
-		return await moderateUser(args);
-	},
-	manageReaction: async (args: ReactionData) => {
-		return await manageReaction(args);
-	},
-	managePin: async (args: PinData) => {
-		return await managePin(args);
-	},
-	createPoll: async (args: PollData) => {
-		return await createPoll(args);
-	},
-	setReminder: async (args: ReminderData) => {
-		return await setReminder(args);
-	},
-	playGame: async (args: GameData) => {
-		return await playGame(args);
-	},
-	calculate: async (args: CalculatorData) => {
-		return await calculate(args);
-	},
-	search: async (args: SearchData) => {
-		return await search(args);
-	},
-	getServerStats: async (args: ServerStatsData) => {
-		return await getServerStats(args);
-	},
-	createRole: async (args: CreateRoleData) => {
-		return await createRole(args);
-	},
-	editRole: async (args: EditRoleData) => {
-		return await editRole(args);
-	},
-	deleteRole: async (args: DeleteRoleData) => {
-		return await deleteRole(args);
-	},
-	listRoles: async (args: ListRolesData) => {
-		return await listRoles(args);
-	},
-	createWebhook: async (args: CreateWebhookData) => {
-		return await createWebhook(args);
-	},
-	listWebhooks: async (args: ListWebhooksData) => {
-		return await listWebhooks(args);
-	},
-	deleteWebhook: async (args: DeleteWebhookData) => {
-		return await deleteWebhook(args);
-	},
-	getBotInfo: async (args: GetBotInfoData) => {
-		return await getBotInfo(args);
-	},
-	getAuditLogs: async (args: AuditLogData) => {
-		return await getAuditLogs(args);
-	},
-	createInvite: async (args: InviteData) => {
-		return await createInvite(args);
-	},
-	listInvites: async (args: ListInvitesData) => {
-		return await listInvites(args);
-	},
-	deleteInvite: async (args: DeleteInviteData) => {
-		return await deleteInvite(args);
-	},
-	addEmoji: async (args: EmojiData) => {
-		return await addEmoji(args);
-	},
-	removeEmoji: async (args: RemoveEmojiData) => {
-		return await removeEmoji(args);
-	},
-	listEmojis: async (args: ListEmojisData) => {
-		return await listEmojis(args);
-	},
-	unbanUser: async (args: UnbanUserData) => {
-		return await unbanUser(args);
-	},
-	listBans: async (args: ListBansData) => {
-		return await listBans(args);
-	},
-	updateServerSettings: async (args: UpdateServerSettingsData) => {
-		return await updateServerSettings(args);
-	},
-	createEvent: async (args: CreateEventData) => {
-		return await createEvent(args);
-	},
-	cancelEvent: async (args: CancelEventData) => {
-		return await cancelEvent(args);
-	},
-	moveVoiceUser: async (args: MoveVoiceUserData) => {
-		return await moveVoiceUser(args);
-	},
-	muteVoiceUser: async (args: MuteVoiceUserData) => {
-		return await muteVoiceUser(args);
-	},
-	createThread: async (args: CreateThreadData) => {
-		return await createThread(args);
-	},
-	archiveThread: async (args: ArchiveThreadData) => {
-		return await archiveThread(args);
-	},
-	editMessage: async (args: EditMessageData) => {
-		return await editMessage(args);
-	},
-	deleteMessage: async (args: DeleteMessageData) => {
-		return await deleteMessage(args);
-	},
-	setSlowmode: async (args: SetSlowmodeData) => {
-		return await setSlowmode(args);
-	},
-	setNSFW: async (args: SetNSFWData) => {
-		return await setNSFW(args);
-	},
-	createForumChannel: async (args: CreateForumChannelData) => {
-		return await createForumChannel(args);
-	},
-	createForumPost: async (args: CreateForumPostData) => {
-		return await createForumPost(args);
-	},
-	setupLogging: async (args: LogEventData) => {
-		return await setupLogging(args);
-	},
-	createCustomCommand: async (args: CreateCustomCommandData) => {
-		return await createCustomCommand(args);
-	},
-	deleteCustomCommand: async (args: DeleteCustomCommandData) => {
-		return await deleteCustomCommand(args);
-	},
-	listCustomCommands: async (args: ListCustomCommandsData) => {
-		return await listCustomCommands(args);
-	},
-	executeCode: async (args: { code: string }, message?: Message) => {
-		const confirmationResult = await handleCodeExecutionConfirmation(args.code, message);
-		if (confirmationResult) {
-			return confirmationResult;
+	sendDiscordMessage: createSimpleHandler(sendDiscordMessage),
+	readDiscordMessages: createSimpleHandler(readDiscordMessages),
+	createVoiceChannel: createSimpleHandler(createVoiceChannel),
+	createTextChannel: createSimpleHandler(createTextChannel),
+	createCategory: createSimpleHandler(createCategory),
+	deleteChannel: createSimpleHandler(deleteChannel),
+	deleteAllChannels: createSimpleHandler(deleteAllChannels),
+	listChannels: createSimpleHandler(listChannels),
+	moveChannel: createSimpleHandler(moveChannel),
+	reorderChannel: createSimpleHandler(reorderChannel),
+	reorderChannels: createSimpleHandler(reorderChannels),
+	renameChannel: createSimpleHandler(renameChannel),
+	setChannelTopic: createSimpleHandler(setChannelTopic),
+	setAllChannelTopics: createSimpleHandler(setAllChannelTopics),
+	bulkCreateChannels: createSimpleHandler(bulkCreateChannels),
+	getServerInfo: createSimpleHandler(getServerInfo),
+	setChannelPermissions: createSimpleHandler(setChannelPermissions),
+	clearDiscordMessages: createSimpleHandler(clearDiscordMessages),
+	purgeChannel: createSimpleHandler(purgeChannel),
+	getUserInfo: createSimpleHandler(getUserInfo),
+	manageUserRole: createSimpleHandler(manageUserRole),
+	moderateUser: createSimpleHandler(moderateUser),
+	manageReaction: createSimpleHandler(manageReaction),
+	managePin: createSimpleHandler(managePin),
+	createPoll: createSimpleHandler(createPoll),
+	setReminder: createSimpleHandler(setReminder),
+	playGame: createSimpleHandler(playGame),
+	calculate: createSimpleHandler(calculate),
+	search: createSimpleHandler(search),
+	DFINT: createSimpleHandler(dfint),
+	getServerStats: createSimpleHandler(getServerStats),
+	createRole: createSimpleHandler(createRole),
+	editRole: createSimpleHandler(editRole),
+	deleteRole: createSimpleHandler(deleteRole),
+	listRoles: createSimpleHandler(listRoles),
+	createWebhook: createSimpleHandler(createWebhook),
+	listWebhooks: createSimpleHandler(listWebhooks),
+	deleteWebhook: createSimpleHandler(deleteWebhook),
+	getBotInfo: createSimpleHandler(getBotInfo),
+	getAuditLogs: createSimpleHandler(getAuditLogs),
+	createInvite: createSimpleHandler(createInvite),
+	listInvites: createSimpleHandler(listInvites),
+	deleteInvite: createSimpleHandler(deleteInvite),
+	addEmoji: createSimpleHandler(addEmoji),
+	removeEmoji: createSimpleHandler(removeEmoji),
+	listEmojis: createSimpleHandler(listEmojis),
+	unbanUser: createSimpleHandler(unbanUser),
+	listBans: createSimpleHandler(listBans),
+	updateServerSettings: createSimpleHandler(updateServerSettings),
+	createEvent: createSimpleHandler(createEvent),
+	cancelEvent: createSimpleHandler(cancelEvent),
+	moveVoiceUser: createSimpleHandler(moveVoiceUser),
+	muteVoiceUser: createSimpleHandler(muteVoiceUser),
+	createThread: createSimpleHandler(createThread),
+	archiveThread: createSimpleHandler(archiveThread),
+	editMessage: createSimpleHandler(editMessage),
+	deleteMessage: createSimpleHandler(deleteMessage),
+	setSlowmode: createSimpleHandler(setSlowmode),
+	setNSFW: createSimpleHandler(setNSFW),
+	createForumChannel: createSimpleHandler(createForumChannel),
+	createForumPost: createSimpleHandler(createForumPost),
+	setupLogging: createSimpleHandler(setupLogging),
+	createCustomCommand: createSimpleHandler(createCustomCommand),
+	deleteCustomCommand: createSimpleHandler(deleteCustomCommand),
+	listCustomCommands: createSimpleHandler(listCustomCommands),
+	findSuitableChannel: createSimpleHandler(findSuitableChannel),
+	executeCode: async (args: { code: string; risky?: boolean }, message?: Message) => {
+		if (args.risky) {
+			const confirmationResult = await handleCodeExecutionConfirmation(args.code, message);
+			if (confirmationResult) {
+				return confirmationResult;
+			}
 		}
 
 		return await executeCodeWithRetries(args.code, message);
+	},
+	fetchAPI: async (args: { url: string; description: string }) => {
+		try {
+			let url = args.url.trim();
+			if (!url.startsWith('http://') && !url.startsWith('https://')) {
+				url = 'https://' + url;
+			}
+
+			const response = await fetch(url);
+			if (!response.ok) {
+				return `API request failed with status ${response.status}: ${response.statusText}`;
+			}
+			const data = await response.json();
+
+			return `API Response Data (${args.description}):
+${JSON.stringify(data, null, 2)}
+
+IMPORTANT: The above is RAW API data. You MUST:
+1. Parse and interpret this data carefully
+2. ONLY state information that is ACTUALLY present in the response
+3. Do NOT make up or hallucinate additional details
+4. If you cannot find specific information in the response, say so
+5. Verify any claims you make against the actual data above`;
+		} catch (error) {
+			return `Error fetching API: ${error instanceof Error ? error.message : 'Unknown error'}`;
+		}
 	},
 	reloadSettings: async () => {
 		reloadSettings();
@@ -452,14 +281,38 @@ function createReadMessagesFunction(message?: Message) {
 	};
 }
 
-function createExecutionContext(message?: Message) {
-	return createContext({
-		console: console,
+function createExecutionContext(message?: Message, capturedOutput?: string[]) {
+	const customConsole = {
+		...console,
+		log: (...args: any[]) => {
+			if (capturedOutput) {
+				capturedOutput.push(args.map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg))).join(' '));
+			}
+			console.log(...args);
+		},
+	};
+
+	const context = {
+		console: customConsole,
+		Date: Date,
+		Math: Math,
+		JSON: JSON,
+		String: String,
+		Number: Number,
+		Array: Array,
+		Object: Object,
+		Promise: Promise,
+		setTimeout: setTimeout,
+		setInterval: setInterval,
+		clearTimeout: clearTimeout,
+		clearInterval: clearInterval,
+		print: (...args: any[]) => customConsole.log(...args),
 		readMessages: createReadMessagesFunction(message),
 		discordClient: discordClient,
 		currentChannel: message?.channelId,
 		currentServer: message?.guildId,
-	});
+	};
+	return createContext(context);
 }
 
 async function executeCodeWithRetries(code: string, message?: Message): Promise<string> {
@@ -468,13 +321,81 @@ async function executeCodeWithRetries(code: string, message?: Message): Promise<
 
 	for (let attempt = 1; attempt <= maxRetries; attempt++) {
 		try {
-			const context = createExecutionContext(message);
-			const wrappedCode = `(async () => { ${code} })()`;
-			const result = await runInContext(wrappedCode, context);
-			return `Code executed successfully. Result: ${result}`;
+			const capturedOutput: string[] = [];
+			const context = createExecutionContext(message, capturedOutput);
+
+			const trimmedCode = code.trim();
+			let wrappedCode: string;
+
+			const hasMultipleStatements =
+				trimmedCode.includes('\n') ||
+				trimmedCode.includes(';') ||
+				trimmedCode.includes('return') ||
+				/^(const|let|var|if|for|while|function|class)\s/.test(trimmedCode);
+
+			if (hasMultipleStatements) {
+				wrappedCode = `(async () => { ${code} })()`;
+			} else {
+				wrappedCode = `(async () => { return ${code} })()`;
+			}
+
+			console.log('Executing code:', trimmedCode);
+			console.log('Wrapped code:', wrappedCode);
+
+			const script = new Script(wrappedCode);
+			const result = script.runInContext(context);
+
+			console.log('Raw result:', result);
+			console.log('Result type:', typeof result);
+
+			const isThenable =
+				result &&
+				(typeof result === 'object' || typeof result === 'function') &&
+				typeof (result as any).then === 'function';
+			console.log('Is thenable:', isThenable);
+
+			let finalResult: any;
+			if (isThenable) {
+				try {
+					finalResult = await (result as any);
+				} catch (err) {
+					throw err;
+				}
+			} else {
+				finalResult = result;
+			}
+
+			console.log('Final result:', finalResult);
+			console.log('Final result type:', typeof finalResult);
+			console.log('Captured output:', capturedOutput);
+
+			if (finalResult === undefined && capturedOutput.length > 0) {
+				finalResult = capturedOutput.join('\n');
+			}
+
+			let resultStr: string;
+			if (finalResult === undefined) {
+				resultStr = 'undefined';
+			} else if (finalResult === null) {
+				resultStr = 'null';
+			} else if (typeof finalResult === 'object') {
+				resultStr = JSON.stringify(finalResult, null, 2);
+			} else {
+				resultStr = String(finalResult);
+			}
+
+			return `Code executed successfully. Result: ${resultStr}`;
 		} catch (error) {
-			lastError = error instanceof Error ? error.message : 'Unknown error';
-			console.log(`executeCode attempt ${attempt} failed: ${lastError}`);
+			if (error instanceof Error) {
+				lastError = `${error.name}: ${error.message}`;
+			} else if (typeof error === 'string') {
+				lastError = error;
+			} else if (error && typeof error === 'object') {
+				lastError = JSON.stringify(error);
+			} else {
+				lastError = String(error);
+			}
+			console.log(`executeCode attempt ${attempt} failed:`, error);
 
 			if (attempt < maxRetries) {
 				await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
@@ -535,20 +456,27 @@ async function sendResponseMessage(
 	channelExists: boolean,
 	targetChannel: any,
 ): Promise<void> {
+	const cleanedResponse = responseText.replace(/^\[Responding to @\w+\]\s*/i, '');
+
+	const messageOptions = {
+		content: cleanedResponse,
+		allowedMentions: { parse: ['users', 'roles', 'everyone'] as const },
+	};
+
 	if (messageExists && channelExists && targetChannel === message.channel) {
 		try {
-			await message.reply(responseText);
+			await message.reply(messageOptions);
 		} catch (error) {
 			console.log('Failed to reply to message, sending regular message instead:', error);
 			if (targetChannel?.isTextBased() && 'send' in targetChannel) {
-				await targetChannel.send(responseText);
+				await targetChannel.send(messageOptions);
 			}
 		}
 		return;
 	}
 
 	if (targetChannel?.isTextBased() && 'send' in targetChannel) {
-		await targetChannel.send(responseText);
+		await targetChannel.send(messageOptions);
 	}
 }
 
@@ -659,7 +587,17 @@ async function processFunctionCall(
 		const handler = functionHandlers[call.name];
 		if (!handler) {
 			console.warn(`Unknown function: ${call.name}`);
-			const errorResult = { error: `Unknown function: ${call.name}` };
+
+			const availableFunctions = Object.keys(functionHandlers);
+			const normalizedCallName = call.name.toLowerCase().replace(/_/g, '');
+			const suggestion = availableFunctions.find((fn) => fn.toLowerCase().replace(/_/g, '') === normalizedCallName);
+
+			let errorMessage = `Unknown function: ${call.name}`;
+			if (suggestion) {
+				errorMessage += `. Did you mean '${suggestion}'? Use exact function names from your tools.`;
+			}
+
+			const errorResult = { error: errorMessage };
 			functionResults.push({ name: call.name, result: errorResult });
 			allFunctionResults.push({ name: call.name, result: errorResult });
 			return;
@@ -838,13 +776,43 @@ async function processAIResponse(
 
 	if (round >= maxRounds) {
 		console.warn('Reached maximum function call rounds');
-		responseText = 'I performed multiple operations but reached the maximum limit. Please check the logs for details.';
+		try {
+			const maxRoundsResponse = await aiClient.models.generateContent({
+				model: 'gemini-flash-lite-latest',
+				contents: [
+					{
+						role: 'user',
+						parts: [
+							{
+								text: `Generate a unique, friendly message explaining that you performed multiple operations but hit a processing limit. Keep it 1-2 sentences, casual tone, suggest checking logs. Include a relevant emoji. Make it different each time.`,
+							},
+						],
+					},
+				],
+			});
+
+			const generatedMaxRounds = maxRoundsResponse.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+			if (generatedMaxRounds) {
+				responseText = generatedMaxRounds;
+			} else {
+				responseText =
+					'I performed multiple operations but reached the maximum limit. Please check the logs for details.';
+			}
+		} catch (error) {
+			console.error('Failed to generate max rounds message:', error);
+			responseText =
+				'I performed multiple operations but reached the maximum limit. Please check the logs for details.';
+		}
 	}
 
 	return { responseText, allFunctionResults };
 }
 
-async function sendFinalResponse(message: Message, responseText: string): Promise<void> {
+async function sendFinalResponse(
+	message: Message,
+	responseText: string,
+	reactionAdded: boolean = false,
+): Promise<void> {
 	let targetChannelOverride = null;
 
 	if (newChannelIdFromPurge) {
@@ -878,6 +846,14 @@ async function sendFinalResponse(message: Message, responseText: string): Promis
 		const debugMessage = "I received your message but couldn't generate a response. Please check the logs for details.";
 		await sendResponseMessage(message, debugMessage, messageExists, channelExists, targetChannel);
 	}
+
+	if (reactionAdded) {
+		try {
+			await message.reactions.cache.get('🤔')?.users.remove(discordClient.user!.id);
+		} catch (error) {
+			console.error('Error removing thinking reaction:', error);
+		}
+	}
 }
 
 function shouldProcessMessage(message: Message): boolean {
@@ -895,7 +871,10 @@ function shouldProcessMessage(message: Message): boolean {
 export async function handleMessage(message: Message, aiClient: GoogleGenAI): Promise<void> {
 	if (!shouldProcessMessage(message)) return;
 
-	const userMessage = message.content;
+	let userMessage = message.content;
+	if (message.mentions.has(message.client.user!.id)) {
+		userMessage = userMessage.replace(new RegExp(`<@!?${message.client.user!.id}>`, 'g'), '').trim();
+	}
 
 	const customResponse = await executeCustomCommand(message.guildId || '', userMessage);
 	if (customResponse) {
@@ -905,6 +884,14 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 			console.error('Error sending custom command response:', error);
 		}
 		return;
+	}
+
+	let reactionAdded = false;
+	try {
+		await message.react('🤔');
+		reactionAdded = true;
+	} catch (error) {
+		console.error('Error adding thinking reaction:', error);
 	}
 
 	try {
@@ -923,33 +910,47 @@ Current user: ${displayName} (@${userName}, ID: ${userId})
 🎯 **CURRENT USER REQUEST (MOST IMPORTANT - ANSWER THIS):**
 User @${userName} says: ${userMessage}
 
-⚠️ CRITICAL: You are responding to @${userName}. Focus ONLY on their current request above. Previous messages from OTHER users are just context - do NOT answer their old questions unless @${userName} is asking about them.`;
+⚠️ CRITICAL INSTRUCTIONS:
+- You are responding to @${userName}'s NEW request above
+- DO NOT repeat your previous responses - each message needs a FRESH answer
+- If user asks to try differently or use different method, DO IT - don't repeat old answers
+- Previous messages are ONLY for context - focus on the CURRENT request
+- If you failed before, try a DIFFERENT approach this time
+
+🔍 ACCURACY REQUIREMENTS:
+- VERIFY all facts against actual data from API responses or code execution
+- NEVER state information that isn't in the actual response data
+- If uncertain, say "according to [source]" or acknowledge limitations
+- Double-check dates, numbers, and specific claims before stating them as fact`;
 
 		const textChannel = message.channel as TextChannel;
 		const fetchedMessages = await textChannel.messages.fetch({ limit: 10, before: message.id });
-		const conversationHistory = Array.from(fetchedMessages.values())
+		const messagesArray = Array.from(fetchedMessages.values())
 			.sort((a, b) => a.createdTimestamp - b.createdTimestamp)
 			.filter((msg) => msg.content.trim())
-			.slice(-6)
-			.map((msg) => {
-				const author = msg.author.username;
-				const isBot = msg.author.bot;
-				const isCurrentUser = msg.author.id === userId;
+			.slice(-6);
 
-				if (isBot) {
-					return {
-						role: 'model' as const,
-						parts: [{ text: msg.content }],
-						timestamp: msg.createdTimestamp,
-					};
-				} else {
-					return {
-						role: 'user' as const,
-						parts: [{ text: `${isCurrentUser ? '[SAME USER] ' : '[DIFFERENT USER] '}@${author}: ${msg.content}` }],
-						timestamp: msg.createdTimestamp,
-					};
-				}
-			});
+		const conversationHistory = messagesArray.map((msg) => {
+			const author = msg.author.username;
+			const isBot = msg.author.bot;
+			const isCurrentUser = msg.author.id === userId;
+
+			if (isBot) {
+				const cleanContent = msg.content.replace(/^\[Responding to @\w+\]\s*/i, '');
+
+				return {
+					role: 'model' as const,
+					parts: [{ text: cleanContent }],
+					timestamp: msg.createdTimestamp,
+				};
+			} else {
+				return {
+					role: 'user' as const,
+					parts: [{ text: `${isCurrentUser ? '[SAME USER] ' : '[DIFFERENT USER] '}@${author}: ${msg.content}` }],
+					timestamp: msg.createdTimestamp,
+				};
+			}
+		});
 
 		const conversation = buildConversationContext(contextualMessage, conversationHistory);
 
@@ -957,31 +958,66 @@ User @${userName} says: ${userMessage}
 
 		console.log('Final response text:', responseText);
 
-		await sendFinalResponse(message, responseText);
+		await sendFinalResponse(message, responseText, reactionAdded);
 	} catch (error) {
 		console.error('Error:', error);
 		const { messageExists, channelExists, targetChannel } = await checkMessageAndChannelAccess(message);
 
 		if (targetChannel) {
-			let errorMessage = 'Sorry, I encountered an error processing your message.';
+			let errorContext = 'general error';
+			let errorDetails = '';
 
 			if (error && typeof error === 'object' && 'status' in error) {
 				const statusCode = (error as any).status;
 				if (statusCode === 502 || statusCode === 503 || statusCode === 504) {
-					errorMessage =
-						"I'm having trouble connecting to my AI service right now (temporary server error). Please try again in a moment! 🔄";
+					errorContext = 'temporary server error';
+					errorDetails = 'AI service connection issue';
 				} else if (statusCode === 429) {
-					errorMessage = "I'm receiving too many requests right now. Please wait a moment and try again! ⏳";
+					errorContext = 'rate limit';
+					errorDetails = 'too many requests';
 				} else if (statusCode >= 500) {
-					errorMessage = 'My AI service is experiencing issues. Please try again shortly! 🛠️';
+					errorContext = 'server error';
+					errorDetails = 'AI service experiencing issues';
 				} else if (statusCode === 401 || statusCode === 403) {
-					errorMessage =
-						"I'm having authentication issues with my AI service. Please contact the bot administrator! 🔐";
+					errorContext = 'authentication error';
+					errorDetails = 'API key configuration issue';
 					console.error('CRITICAL: API authentication error. Check your API key configuration.');
 				}
 			}
 
+			let errorMessage = 'Sorry, I encountered an error processing your message.';
+			try {
+				const errorResponse = await aiClient.models.generateContent({
+					model: 'gemini-flash-lite-latest',
+					contents: [
+						{
+							role: 'user',
+							parts: [
+								{
+									text: `Generate a unique, friendly error message for: ${errorContext}. Context: ${errorDetails}. Keep it 1-2 sentences, casual tone, include a relevant emoji. Make it different each time.`,
+								},
+							],
+						},
+					],
+				});
+
+				const generatedError = errorResponse.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+				if (generatedError) {
+					errorMessage = generatedError;
+				}
+			} catch (aiError) {
+				console.error('Failed to generate error message with AI:', aiError);
+			}
+
 			await sendResponseMessage(message, errorMessage, messageExists, channelExists, targetChannel);
+		}
+
+		if (reactionAdded) {
+			try {
+				await message.reactions.cache.get('🤔')?.users.remove(discordClient.user!.id);
+			} catch (err) {
+				console.error('Error removing thinking reaction on error:', err);
+			}
 		}
 	}
 }
