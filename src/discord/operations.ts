@@ -257,6 +257,57 @@ export async function sendDiscordMessage({ server, channel, message }: MessageDa
 	return `Sent to #${textChannel.name} in ${textChannel.guild.name}. ID: ${sentMessage.id}`;
 }
 
+export async function createEmbed({
+	server,
+	channel,
+	title,
+	description,
+	color,
+	fields,
+	footer,
+	image,
+	thumbnail,
+	author,
+	timestamp,
+	url,
+}: {
+	server?: string;
+	channel: string;
+	title?: string;
+	description?: string;
+	color?: string;
+	fields?: Array<{ name: string; value: string; inline?: boolean }>;
+	footer?: { text: string; iconUrl?: string };
+	image?: string;
+	thumbnail?: string;
+	author?: { name: string; iconUrl?: string; url?: string };
+	timestamp?: boolean;
+	url?: string;
+}): Promise<string> {
+	const textChannel = await findTextChannel(channel, server);
+
+	const embed: any = {};
+
+	if (title) embed.title = title;
+	if (description) embed.description = description;
+	if (color) {
+		const parsedColor = parseHexColor(color);
+		if (parsedColor !== null) {
+			embed.color = parsedColor;
+		}
+	}
+	if (fields && fields.length > 0) embed.fields = fields;
+	if (footer) embed.footer = footer;
+	if (image) embed.image = { url: image };
+	if (thumbnail) embed.thumbnail = { url: thumbnail };
+	if (author) embed.author = author;
+	if (timestamp) embed.timestamp = new Date().toISOString();
+	if (url) embed.url = url;
+
+	const sentMessage = await textChannel.send({ embeds: [embed] });
+	return `Embed sent to #${textChannel.name} in ${textChannel.guild.name}. ID: ${sentMessage.id}`;
+}
+
 export async function readDiscordMessages({ server, channel, messageCount = 50 }: MessageHistory): Promise<string> {
 	const textChannel = await findTextChannel(channel, server);
 

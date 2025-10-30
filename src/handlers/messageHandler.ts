@@ -6,6 +6,7 @@ import { createAIConfig, createAITools } from '../ai/index.js';
 import { discordClient } from '../discord/client.js';
 import {
 	sendDiscordMessage,
+	createEmbed,
 	readDiscordMessages,
 	createVoiceChannel,
 	createTextChannel,
@@ -124,6 +125,7 @@ const createSimpleHandler = (fn: Function) => async (args: any) => await fn(args
 
 const functionHandlers: Record<string, (...args: any[]) => Promise<any>> = {
 	sendDiscordMessage: createSimpleHandler(sendDiscordMessage),
+	createEmbed: createSimpleHandler(createEmbed),
 	readDiscordMessages: createSimpleHandler(readDiscordMessages),
 	createVoiceChannel: createSimpleHandler(createVoiceChannel),
 	createTextChannel: createSimpleHandler(createTextChannel),

@@ -18,7 +18,8 @@ export function createAITools() {
 		functionDeclarations: [
 			{
 				name: 'sendDiscordMessage',
-				description: 'Send a message to a Discord channel',
+				description:
+					'Send a PLAIN TEXT message to a Discord channel. CANNOT send embeds/rich formatting - use executeCode for embeds.',
 				parameters: {
 					type: Type.OBJECT,
 					properties: {
@@ -36,6 +37,42 @@ export function createAITools() {
 						},
 					},
 					required: ['channel', 'message'],
+				},
+			},
+			{
+				name: 'createEmbed',
+				description:
+					'Create and send a rich embed message to a Discord channel. Use this for formatted messages with titles, descriptions, fields, colors, images. CALL THIS ONLY ONCE PER REQUEST - it immediately sends the embed. DO NOT call multiple times for the same request.',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID (defaults to current server)' },
+						channel: { type: Type.STRING, description: 'Channel name or ID' },
+						title: { type: Type.STRING, description: 'Embed title' },
+						description: { type: Type.STRING, description: 'Main embed body text' },
+						color: { type: Type.STRING, description: 'Hex color code (e.g., "#FF5733")' },
+						fields: {
+							type: Type.ARRAY,
+							items: {
+								type: Type.OBJECT,
+								properties: {
+									name: { type: Type.STRING },
+									value: { type: Type.STRING },
+									inline: { type: Type.BOOLEAN },
+								},
+							},
+						},
+						footer: { type: Type.OBJECT, properties: { text: { type: Type.STRING }, iconUrl: { type: Type.STRING } } },
+						image: { type: Type.STRING, description: 'Large image URL' },
+						thumbnail: { type: Type.STRING, description: 'Thumbnail URL' },
+						author: {
+							type: Type.OBJECT,
+							properties: { name: { type: Type.STRING }, iconUrl: { type: Type.STRING }, url: { type: Type.STRING } },
+						},
+						timestamp: { type: Type.BOOLEAN, description: 'Add timestamp' },
+						url: { type: Type.STRING, description: 'Title URL' },
+					},
+					required: ['channel'],
 				},
 			},
 			{
@@ -1569,7 +1606,7 @@ export function createAITools() {
 			{
 				name: 'executeCode',
 				description:
-					'Execute JavaScript code for calculations, data processing, and getting real-time information (e.g., current date/time with new Date()). Use this for any computation or when you need current system information. Mark as risky if code performs Discord operations, data modifications, or sends messages.',
+					'Execute JavaScript code for calculations, data processing, real-time information, AND Discord embeds/rich formatting. REQUIRED for sending embeds - use discordClient.channels.cache.get(channelId).send({ embeds: [...] }). Has access to discordClient, currentChannel, currentServer variables. Mark as risky if code performs Discord operations.',
 				parameters: {
 					type: Type.OBJECT,
 					properties: {
@@ -1581,7 +1618,7 @@ export function createAITools() {
 						risky: {
 							type: Type.BOOLEAN,
 							description:
-								'Set to true if code performs Discord operations (sending messages, deleting, modifying data). Set to false for safe operations like date/time, calculations, or reading data.',
+								'Set to FALSE for sending embeds/messages, calculations, reading data (these are safe, non-destructive). Set to TRUE only for destructive operations like bulk deleting, modifying roles, or clearing messages.',
 						},
 					},
 					required: ['code', 'risky'],
