@@ -108,7 +108,7 @@ When finding information, use the Google Search tool to gather comprehensive res
 		],
 	};
 
-	const model = 'gemini-flash-lite-latest';
+	const model = 'gemini-flash-latest';
 
 	const searchPrompt = `Conduct digital footprint intelligence on: "${query}"
 	
@@ -218,7 +218,7 @@ export async function performSearch(query: string, type: 'web' | 'images' | 'new
 		],
 	};
 
-	const model = 'gemini-flash-lite-latest';
+	const model = 'gemini-flash-latest';
 
 	const searchPrompt = generateSearchPrompt(query, type, limit);
 

@@ -783,6 +783,49 @@ export function createAITools() {
 				},
 			},
 			{
+				name: 'screenshotWebsite',
+				description:
+					"Capture a live screenshot of a webpage using the bot's local browser environment and deliver it in Discord. Ideal when the user wants to see the current appearance of a site.",
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: {
+							type: Type.STRING,
+							description: 'Server name or ID (defaults to current server)',
+						},
+						channel: {
+							type: Type.STRING,
+							description: 'Channel name or ID where the screenshot should be posted',
+						},
+						url: {
+							type: Type.STRING,
+							description: 'Website URL to capture. If protocol is missing, https is assumed.',
+						},
+						fullPage: {
+							type: Type.BOOLEAN,
+							description: 'Capture the full scrollable page when true. Defaults to true.',
+						},
+						width: {
+							type: Type.NUMBER,
+							description: 'Viewport width in pixels (320-3840). Defaults to 1280.',
+						},
+						height: {
+							type: Type.NUMBER,
+							description: 'Viewport height in pixels (320-2160). Defaults to 720.',
+						},
+						deviceScaleFactor: {
+							type: Type.NUMBER,
+							description: 'Device pixel ratio (1-3). Defaults to 1.',
+						},
+						delayMs: {
+							type: Type.NUMBER,
+							description: 'Delay in milliseconds after load before capturing (0-30000).',
+						},
+					},
+					required: ['channel', 'url'],
+				},
+			},
+			{
 				name: 'search',
 				description:
 					'Search the web, images, or news using Google Gemini AI with code execution capabilities. For image searches, returns actual image URLs that can be shared with users.',

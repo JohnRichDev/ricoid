@@ -101,7 +101,7 @@ Generate the confirmation message now.`;
 		const fallbackAI = new GoogleGenAI({ apiKey: apiKey! });
 		try {
 			const fallbackResponse = await fallbackAI.models.generateContent({
-				model: 'gemini-flash-lite-latest',
+				model: 'gemini-flash-latest',
 				contents: [
 					{
 						role: 'user',
@@ -198,7 +198,7 @@ What should we ask the user?`;
 		try {
 			const fallbackAI = new GoogleGenAI({ apiKey: apiKey! });
 			const fallbackResponse = await fallbackAI.models.generateContent({
-				model: 'gemini-flash-lite-latest',
+				model: 'gemini-flash-latest',
 				contents: [
 					{
 						role: 'user',
@@ -271,7 +271,7 @@ Generate a helpful response.`;
 		try {
 			const fallbackAI = new GoogleGenAI({ apiKey: apiKey! });
 			const fallbackResponse = await fallbackAI.models.generateContent({
-				model: 'gemini-flash-lite-latest',
+				model: 'gemini-flash-latest',
 				contents: [
 					{
 						role: 'user',

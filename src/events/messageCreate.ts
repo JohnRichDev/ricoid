@@ -62,7 +62,7 @@ Reply "no" if:
 Reply ONLY "yes" or "no".`;
 
 		const result = await aiClient.models.generateContent({
-			model: 'gemini-2.5-flash-lite',
+			model: 'gemini-flash-latest',
 			contents: [{ role: 'user', parts: [{ text: prompt }] }],
 		});
 
