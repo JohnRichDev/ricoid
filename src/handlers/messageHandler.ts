@@ -1,411 +1,326 @@
 import { Message, TextChannel } from 'discord.js';
 import { GoogleGenAI } from '@google/genai';
-import { Script, createContext } from 'vm';
-import { getCachedSettings, reloadSettings } from '../config/index.js';
+import { getCachedSettings } from '../config/index.js';
 import { createAIConfig, createAITools } from '../ai/index.js';
 import { discordClient } from '../discord/client.js';
+import { findSuitableChannel, executeCustomCommand } from '../discord/operations.js';
+import { setOperationContext, clearOperationContext } from '../util/confirmedOperations.js';
+import { normalizeChannelArgs } from './message/normalize.js';
+import { functionHandlers } from './message/functionHandlers.js';
 import {
-	sendDiscordMessage,
-	createEmbed,
-	readDiscordMessages,
-	createVoiceChannel,
-	createTextChannel,
-	createCategory,
-	listChannels,
-	moveChannel,
-	reorderChannel,
-	reorderChannels,
-	renameChannel,
-	setChannelTopic,
-	setAllChannelTopics,
-	getServerInfo,
-	setChannelPermissions,
-	getUserInfo,
-	manageReaction,
-	managePin,
-	createPoll,
-	setReminder,
-	playGame,
-	calculate,
-	getServerStats,
-	findSuitableChannel,
-	listRoles,
-	createWebhook,
-	listWebhooks,
-	deleteWebhook,
-	getBotInfo,
-	getAuditLogs,
-	createInvite,
-	listInvites,
-	deleteInvite,
-	addEmoji,
-	removeEmoji,
-	listEmojis,
-	unbanUser,
-	listBans,
-	updateServerSettings,
-	createEvent,
-	cancelEvent,
-	moveVoiceUser,
-	muteVoiceUser,
-	createThread,
-	archiveThread,
-	editMessage,
-	deleteMessage,
-	setSlowmode,
-	setNSFW,
-	createForumChannel,
-	createForumPost,
-	setupLogging,
-	createCustomCommand,
-	deleteCustomCommand,
-	listCustomCommands,
-	executeCustomCommand,
-	search,
-	dfint,
-} from '../discord/operations.js';
-import {
-	deleteChannel,
-	deleteAllChannels,
-	clearDiscordMessages,
-	purgeChannel,
-	moderateUser,
-	manageUserRole,
-	bulkCreateChannels,
-	createRole,
-	editRole,
-	deleteRole,
-	setOperationContext,
-	clearOperationContext,
-} from '../util/confirmedOperations.js';
-import { shouldShowConfirmation } from '../commands/utility/settings/confirmationModule.js';
-import { createAIConfirmation } from '../util/confirmationSystem.js';
+	buildConversationContext,
+	extractResponseText,
+	createConversationEntryFromMessage,
+} from './message/conversation.js';
+import type { ConversationHistoryEntry, ConversationPart } from './message/types.js';
 
 let newChannelIdFromPurge: string | null = null;
+const tools = createAITools();
 
-function setDefaultServer(args: any, messageGuildId: string): void {
-	if (!args.server) {
-		args.server = messageGuildId;
-	}
-}
-
-function normalizeChannelReference(args: any, messageChannelId: string, callName?: string): void {
-	if ('channel' in args) {
-		const channel = args.channel;
-		const isCurrentChannelRef =
-			!channel || channel.toLowerCase() === 'this channel' || channel.toLowerCase() === 'current channel';
-
-		if (isCurrentChannelRef) {
-			args.channel = messageChannelId;
-		}
-	} else if (callName === 'clearDiscordMessages') {
-		args.channel = messageChannelId;
-	} else if (callName === 'purgeChannel') {
-		if (!args.channel) {
-			args.channel = messageChannelId;
-		}
-	}
-}
-
-function validateAndCleanServer(_args: any): void {}
-
-function normalizeChannelArgs(args: any, messageChannelId: string, messageGuildId: string, callName?: string): any {
-	if (!args || typeof args !== 'object') {
-		return args;
-	}
-
-	setDefaultServer(args, messageGuildId);
-	normalizeChannelReference(args, messageChannelId, callName);
-	validateAndCleanServer(args);
-
-	return args;
-}
-
-const createSimpleHandler = (fn: Function) => async (args: any) => await fn(args);
-
-const functionHandlers: Record<string, (...args: any[]) => Promise<any>> = {
-	sendDiscordMessage: createSimpleHandler(sendDiscordMessage),
-	createEmbed: createSimpleHandler(createEmbed),
-	readDiscordMessages: createSimpleHandler(readDiscordMessages),
-	createVoiceChannel: createSimpleHandler(createVoiceChannel),
-	createTextChannel: createSimpleHandler(createTextChannel),
-	createCategory: createSimpleHandler(createCategory),
-	deleteChannel: createSimpleHandler(deleteChannel),
-	deleteAllChannels: createSimpleHandler(deleteAllChannels),
-	listChannels: createSimpleHandler(listChannels),
-	moveChannel: createSimpleHandler(moveChannel),
-	reorderChannel: createSimpleHandler(reorderChannel),
-	reorderChannels: createSimpleHandler(reorderChannels),
-	renameChannel: createSimpleHandler(renameChannel),
-	setChannelTopic: createSimpleHandler(setChannelTopic),
-	setAllChannelTopics: createSimpleHandler(setAllChannelTopics),
-	bulkCreateChannels: createSimpleHandler(bulkCreateChannels),
-	getServerInfo: createSimpleHandler(getServerInfo),
-	setChannelPermissions: createSimpleHandler(setChannelPermissions),
-	clearDiscordMessages: createSimpleHandler(clearDiscordMessages),
-	purgeChannel: createSimpleHandler(purgeChannel),
-	getUserInfo: createSimpleHandler(getUserInfo),
-	manageUserRole: createSimpleHandler(manageUserRole),
-	moderateUser: createSimpleHandler(moderateUser),
-	manageReaction: createSimpleHandler(manageReaction),
-	managePin: createSimpleHandler(managePin),
-	createPoll: createSimpleHandler(createPoll),
-	setReminder: createSimpleHandler(setReminder),
-	playGame: createSimpleHandler(playGame),
-	calculate: createSimpleHandler(calculate),
-	search: createSimpleHandler(search),
-	DFINT: createSimpleHandler(dfint),
-	getServerStats: createSimpleHandler(getServerStats),
-	createRole: createSimpleHandler(createRole),
-	editRole: createSimpleHandler(editRole),
-	deleteRole: createSimpleHandler(deleteRole),
-	listRoles: createSimpleHandler(listRoles),
-	createWebhook: createSimpleHandler(createWebhook),
-	listWebhooks: createSimpleHandler(listWebhooks),
-	deleteWebhook: createSimpleHandler(deleteWebhook),
-	getBotInfo: createSimpleHandler(getBotInfo),
-	getAuditLogs: createSimpleHandler(getAuditLogs),
-	createInvite: createSimpleHandler(createInvite),
-	listInvites: createSimpleHandler(listInvites),
-	deleteInvite: createSimpleHandler(deleteInvite),
-	addEmoji: createSimpleHandler(addEmoji),
-	removeEmoji: createSimpleHandler(removeEmoji),
-	listEmojis: createSimpleHandler(listEmojis),
-	unbanUser: createSimpleHandler(unbanUser),
-	listBans: createSimpleHandler(listBans),
-	updateServerSettings: createSimpleHandler(updateServerSettings),
-	createEvent: createSimpleHandler(createEvent),
-	cancelEvent: createSimpleHandler(cancelEvent),
-	moveVoiceUser: createSimpleHandler(moveVoiceUser),
-	muteVoiceUser: createSimpleHandler(muteVoiceUser),
-	createThread: createSimpleHandler(createThread),
-	archiveThread: createSimpleHandler(archiveThread),
-	editMessage: createSimpleHandler(editMessage),
-	deleteMessage: createSimpleHandler(deleteMessage),
-	setSlowmode: createSimpleHandler(setSlowmode),
-	setNSFW: createSimpleHandler(setNSFW),
-	createForumChannel: createSimpleHandler(createForumChannel),
-	createForumPost: createSimpleHandler(createForumPost),
-	setupLogging: createSimpleHandler(setupLogging),
-	createCustomCommand: createSimpleHandler(createCustomCommand),
-	deleteCustomCommand: createSimpleHandler(deleteCustomCommand),
-	listCustomCommands: createSimpleHandler(listCustomCommands),
-	findSuitableChannel: createSimpleHandler(findSuitableChannel),
-	executeCode: async (args: { code: string; risky?: boolean }, message?: Message) => {
-		if (args.risky) {
-			const confirmationResult = await handleCodeExecutionConfirmation(args.code, message);
-			if (confirmationResult) {
-				return confirmationResult;
-			}
-		}
-
-		return await executeCodeWithRetries(args.code, message);
-	},
-	fetchAPI: async (args: { url: string; description: string }) => {
-		try {
-			let url = args.url.trim();
-			if (!url.startsWith('http://') && !url.startsWith('https://')) {
-				url = 'https://' + url;
-			}
-
-			const response = await fetch(url);
-			if (!response.ok) {
-				return `API request failed with status ${response.status}: ${response.statusText}`;
-			}
-			const data = await response.json();
-
-			return `API Response Data (${args.description}):
-${JSON.stringify(data, null, 2)}
-
-IMPORTANT: The above is RAW API data. You MUST:
-1. Parse and interpret this data carefully
-2. ONLY state information that is ACTUALLY present in the response
-3. Do NOT make up or hallucinate additional details
-4. If you cannot find specific information in the response, say so
-5. Verify any claims you make against the actual data above`;
-		} catch (error) {
-			return `Error fetching API: ${error instanceof Error ? error.message : 'Unknown error'}`;
-		}
-	},
-	reloadSettings: async () => {
-		reloadSettings();
-		return 'Settings reloaded successfully! The bot will now use the updated configuration.';
-	},
+type FunctionExecutionStatus = 'success' | 'error' | 'skipped';
+type FunctionExecutionLogEntry = {
+	name: string;
+	args: any;
+	status: FunctionExecutionStatus;
+	result: any;
 };
 
-async function handleCodeExecutionConfirmation(code: string, message?: Message): Promise<string | null> {
-	const settings = getCachedSettings();
-	if (!shouldShowConfirmation(settings, 'code-execution')) {
-		return null;
+function stableStringify(value: any): string {
+	if (value === undefined) {
+		return 'undefined';
 	}
-
-	if (!message) {
-		return 'Cannot execute code: No message context for confirmation.';
+	if (value === null) {
+		return 'null';
 	}
-
-	const displayCode = code.length > 1000 ? code.substring(0, 1000) + '...' : code;
-	const codeBlock = `\`\`\`javascript\n${displayCode}\n\`\`\``;
-
-	const confirmation = await createAIConfirmation(message.channelId, message.author.id, {
-		title: '⚠️ Execute Code',
-		description: `Are you sure you want to execute the following JavaScript code?\n\n${codeBlock}\n\n⚠️ **This code has full access to the Discord API and could perform dangerous operations.**`,
-		dangerous: true,
-		timeout: 30000,
-		confirmButtonLabel: 'Execute Code',
-	});
-
-	if (!confirmation.confirmed) {
-		return confirmation.timedOut
-			? 'Code execution timed out - code was not executed.'
-			: 'Code execution cancelled - code was not executed.';
+	if (typeof value === 'string') {
+		return JSON.stringify(value);
 	}
-
-	return null;
+	if (typeof value === 'number' || typeof value === 'boolean') {
+		return JSON.stringify(value);
+	}
+	if (Array.isArray(value)) {
+		return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+	}
+	if (typeof value === 'object') {
+		const keys = Object.keys(value).sort();
+		return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+	}
+	return JSON.stringify(String(value));
 }
 
-function createReadMessagesFunction(message?: Message) {
-	return async (count: number = 50) => {
-		if (!message) return 'No message context';
-		const result = await readDiscordMessages({
-			channel: message.channelId,
-			server: message.guildId || undefined,
-			messageCount: count,
-		});
+function createCallSignature(name: string, args: any): string {
+	return `${name}:${stableStringify(args)}`;
+}
+
+function formatDuplicateMessage(name: string, previousResult: any): string {
+	let formattedResult: string;
+	if (typeof previousResult === 'string') {
+		formattedResult = previousResult;
+	} else {
 		try {
-			const messages = JSON.parse(result);
-			if (Array.isArray(messages)) {
-				return messages.map((msg: any) => `${msg.author}: ${msg.content}`).join('\\n');
-			}
-			return result;
+			formattedResult = JSON.stringify(previousResult);
 		} catch {
-			return result;
+			formattedResult = String(previousResult);
 		}
-	};
+	}
+	return `Duplicate call for ${name} skipped. Previous result: ${formattedResult}`;
 }
 
-function createExecutionContext(message?: Message, capturedOutput?: string[]) {
-	const customConsole = {
-		...console,
-		log: (...args: any[]) => {
-			if (capturedOutput) {
-				capturedOutput.push(args.map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg))).join(' '));
-			}
-			console.log(...args);
-		},
-	};
-
-	const context = {
-		console: customConsole,
-		Date: Date,
-		Math: Math,
-		JSON: JSON,
-		String: String,
-		Number: Number,
-		Array: Array,
-		Object: Object,
-		Promise: Promise,
-		setTimeout: setTimeout,
-		setInterval: setInterval,
-		clearTimeout: clearTimeout,
-		clearInterval: clearInterval,
-		print: (...args: any[]) => customConsole.log(...args),
-		readMessages: createReadMessagesFunction(message),
-		discordClient: discordClient,
-		currentChannel: message?.channelId,
-		currentServer: message?.guildId,
-	};
-	return createContext(context);
+function extractNewChannelId(result: string): { newChannelId: string | null; cleanedResult: string } {
+	const regex = /NEW_CHANNEL_ID:(\d+)/;
+	const newChannelMatch = regex.exec(result);
+	if (newChannelMatch) {
+		return {
+			newChannelId: newChannelMatch[1],
+			cleanedResult: result.replace(/\s*NEW_CHANNEL_ID:\d+/, ''),
+		};
+	}
+	return { newChannelId: null, cleanedResult: result };
 }
 
-async function executeCodeWithRetries(code: string, message?: Message): Promise<string> {
-	const maxRetries = 3;
-	let lastError: string = '';
+function normalizeSummaryText(value: string): string {
+	return value.replace(/\s+/g, ' ').trim();
+}
 
-	for (let attempt = 1; attempt <= maxRetries; attempt++) {
+function truncateSummary(value: string, maxLength: number = 160): string {
+	if (value.length <= maxLength) {
+		return value;
+	}
+	return `${value.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
+function formatResultSummary(result: any): string {
+	if (result === undefined || result === null) {
+		return '';
+	}
+	if (typeof result === 'string') {
+		return truncateSummary(normalizeSummaryText(result));
+	}
+	if (typeof result === 'object') {
+		if ('error' in result && typeof (result as any).error === 'string') {
+			return truncateSummary(normalizeSummaryText((result as any).error));
+		}
 		try {
-			const capturedOutput: string[] = [];
-			const context = createExecutionContext(message, capturedOutput);
+			return truncateSummary(JSON.stringify(result));
+		} catch {
+			return '';
+		}
+	}
+	return truncateSummary(normalizeSummaryText(String(result)));
+}
 
-			const trimmedCode = code.trim();
-			let wrappedCode: string;
+function getStatusEmoji(status: FunctionExecutionStatus): string {
+	if (status === 'success') {
+		return '✅';
+	}
+	if (status === 'error') {
+		return '❌';
+	}
+	return '⚠️';
+}
 
-			const hasMultipleStatements =
-				trimmedCode.includes('\n') ||
-				trimmedCode.includes(';') ||
-				trimmedCode.includes('return') ||
-				/^(const|let|var|if|for|while|function|class)\s/.test(trimmedCode);
+function formatExecutionSummary(executionLog: FunctionExecutionLogEntry[]): string {
+	if (!executionLog.length) {
+		return '';
+	}
+	const lines = executionLog.map((entry, index) => {
+		const emoji = getStatusEmoji(entry.status);
+		const summary = formatResultSummary(entry.result);
+		return summary ? `${index + 1}. ${emoji} ${entry.name} — ${summary}` : `${index + 1}. ${emoji} ${entry.name}`;
+	});
+	return `📋 Action Checklist\n${lines.join('\n')}`;
+}
 
-			if (hasMultipleStatements) {
-				wrappedCode = `(async () => { ${code} })()`;
-			} else {
-				wrappedCode = `(async () => { return ${code} })()`;
+async function executeFunctionHandler(
+	call: any,
+	message: Message,
+	handler: Function,
+	normalizedArgs?: any,
+): Promise<any> {
+	const argsToUse =
+		normalizedArgs ?? normalizeChannelArgs(call.args, message.channelId, message.guildId || '', call.name);
+	if (call.name === 'executeCode') {
+		return await handler(argsToUse, message);
+	}
+	return await handler(argsToUse);
+}
+
+async function processFunctionCall(
+	call: any,
+	message: Message,
+	functionResults: Array<{ name: string; result: any }>,
+	allFunctionResults: Array<{ name: string; result: any }>,
+	executionLog: FunctionExecutionLogEntry[],
+	executedCallCache: Map<string, any>,
+	functionAttemptCounts: Map<string, number>,
+): Promise<void> {
+	let callSignature: string | null = null;
+	let logEntry: FunctionExecutionLogEntry | null = null;
+	try {
+		if (!call.args || !call.name) return;
+
+		const handler = functionHandlers[call.name];
+		if (!handler) {
+			console.warn(`Unknown function: ${call.name}`);
+
+			const availableFunctions = Object.keys(functionHandlers);
+			const normalizedCallName = call.name.toLowerCase().replace(/_/g, '');
+			const suggestion = availableFunctions.find((fn) => fn.toLowerCase().replace(/_/g, '') === normalizedCallName);
+
+			let errorMessage = `Unknown function: ${call.name}`;
+			if (suggestion) {
+				errorMessage += `. Did you mean '${suggestion}'? Use exact function names from your tools.`;
 			}
 
-			console.log('Executing code:', trimmedCode);
-			console.log('Wrapped code:', wrappedCode);
+			const errorResult = { error: errorMessage };
+			functionResults.push({ name: call.name, result: errorResult });
+			allFunctionResults.push({ name: call.name, result: errorResult });
+			executionLog.push({
+				name: call.name,
+				args: call.args ?? null,
+				status: 'error',
+				result: errorResult,
+			});
+			return;
+		}
 
-			const script = new Script(wrappedCode);
-			const result = script.runInContext(context);
+		const attemptCount = (functionAttemptCounts.get(call.name) ?? 0) + 1;
+		functionAttemptCounts.set(call.name, attemptCount);
+		if (call.name === 'screenshotWebsite' && attemptCount > 1) {
+			const info =
+				'Screenshot already captured for this request. Ask for another screenshot explicitly in a new message if you need a fresh capture.';
+			functionResults.push({ name: call.name, result: info });
+			allFunctionResults.push({ name: call.name, result: info });
+			executionLog.push({
+				name: call.name,
+				args: call.args ?? null,
+				status: 'skipped',
+				result: info,
+			});
+			console.log(info);
+			return;
+		}
 
-			console.log('Raw result:', result);
-			console.log('Result type:', typeof result);
+		const clonedArgs =
+			typeof call.args === 'object' && call.args !== null && !Array.isArray(call.args) ? { ...call.args } : call.args;
+		const normalizedArgs = normalizeChannelArgs(clonedArgs, message.channelId, message.guildId || '', call.name);
+		callSignature = createCallSignature(call.name, normalizedArgs);
+		logEntry = {
+			name: call.name,
+			args: normalizedArgs,
+			status: 'success',
+			result: null,
+		};
 
-			const isThenable =
-				result &&
-				(typeof result === 'object' || typeof result === 'function') &&
-				typeof (result as any).then === 'function';
-			console.log('Is thenable:', isThenable);
+		if (executedCallCache.has(callSignature)) {
+			const previousResult = executedCallCache.get(callSignature);
+			const duplicateMessage = formatDuplicateMessage(call.name, previousResult);
+			functionResults.push({ name: call.name, result: duplicateMessage });
+			allFunctionResults.push({ name: call.name, result: duplicateMessage });
+			if (logEntry) {
+				logEntry.status = 'skipped';
+				logEntry.result = duplicateMessage;
+				executionLog.push(logEntry);
+				logEntry = null;
+			}
+			console.log(duplicateMessage);
+			return;
+		}
 
-			let finalResult: any;
-			if (isThenable) {
-				try {
-					finalResult = await (result as any);
-				} catch (err) {
-					throw err;
+		setOperationContext({
+			message,
+			userId: message.author.id,
+			channelId: message.channelId,
+		});
+
+		try {
+			let result = await executeFunctionHandler(call, message, handler, normalizedArgs);
+
+			if (call.name === 'purgeChannel' && typeof result === 'string') {
+				const { newChannelId, cleanedResult } = extractNewChannelId(result);
+				if (newChannelId) {
+					newChannelIdFromPurge = newChannelId;
+					result = cleanedResult;
 				}
+			}
+
+			functionResults.push({ name: call.name, result });
+			allFunctionResults.push({ name: call.name, result });
+			executedCallCache.set(callSignature, result);
+			if (logEntry) {
+				logEntry.result = result;
+				executionLog.push(logEntry);
+				logEntry = null;
+			}
+			console.log(`Function call result for ${call.name}:`, result);
+
+			await new Promise((resolve) => setTimeout(resolve, 500));
+		} finally {
+			clearOperationContext();
+		}
+	} catch (error) {
+		console.error('Call error:', error);
+		if (call.name) {
+			const errorResult = {
+				error: error instanceof Error ? error.message : 'Unknown error',
+			};
+			functionResults.push({ name: call.name, result: errorResult });
+			allFunctionResults.push({ name: call.name, result: errorResult });
+			if (callSignature) {
+				executedCallCache.set(callSignature, errorResult);
+			}
+			if (logEntry) {
+				logEntry.status = 'error';
+				logEntry.result = errorResult;
+				executionLog.push(logEntry);
+				logEntry = null;
 			} else {
-				finalResult = result;
-			}
-
-			console.log('Final result:', finalResult);
-			console.log('Final result type:', typeof finalResult);
-			console.log('Captured output:', capturedOutput);
-
-			if (finalResult === undefined && capturedOutput.length > 0) {
-				finalResult = capturedOutput.join('\n');
-			}
-
-			let resultStr: string;
-			if (finalResult === undefined) {
-				resultStr = 'undefined';
-			} else if (finalResult === null) {
-				resultStr = 'null';
-			} else if (typeof finalResult === 'object') {
-				resultStr = JSON.stringify(finalResult, null, 2);
-			} else {
-				resultStr = String(finalResult);
-			}
-
-			return `Code executed successfully. Result: ${resultStr}`;
-		} catch (error) {
-			if (error instanceof Error) {
-				lastError = `${error.name}: ${error.message}`;
-			} else if (typeof error === 'string') {
-				lastError = error;
-			} else if (error && typeof error === 'object') {
-				lastError = JSON.stringify(error);
-			} else {
-				lastError = String(error);
-			}
-			console.log(`executeCode attempt ${attempt} failed:`, error);
-
-			if (attempt < maxRetries) {
-				await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+				executionLog.push({
+					name: call.name,
+					args: call.args ?? null,
+					status: 'error',
+					result: errorResult,
+				});
 			}
 		}
 	}
+}
 
-	return `Error executing code after ${maxRetries} attempts: ${lastError}`;
+async function processFunctionCalls(
+	response: any,
+	message: Message,
+	conversation: any[],
+	allFunctionResults: Array<{ name: string; result: any }>,
+	executionLog: FunctionExecutionLogEntry[],
+	executedCallCache: Map<string, any>,
+): Promise<{ hasFunctionCalls: boolean; functionResults: Array<{ name: string; result: any }> }> {
+	if (!response.functionCalls?.length) {
+		return { hasFunctionCalls: false, functionResults: [] };
+	}
+
+	const functionResults: Array<{ name: string; result: any }> = [];
+	const functionAttemptCounts = new Map<string, number>();
+
+	for (const call of response.functionCalls) {
+		await processFunctionCall(
+			call,
+			message,
+			functionResults,
+			allFunctionResults,
+			executionLog,
+			executedCallCache,
+			functionAttemptCounts,
+		);
+	}
+
+	for (const funcResult of functionResults) {
+		conversation.push({
+			role: 'user',
+			parts: [{ text: `Function ${funcResult.name} returned: ${JSON.stringify(funcResult.result)}` }],
+		});
+	}
+
+	return { hasFunctionCalls: true, functionResults };
 }
 
 function getChannelName(message: Message): string {
@@ -481,222 +396,6 @@ async function sendResponseMessage(
 		await targetChannel.send(messageOptions);
 	}
 }
-
-function buildConversationContext(
-	contextualMessage: string,
-	conversationHistory: Array<{
-		role: 'user' | 'model';
-		parts: Array<{ text: string }>;
-		timestamp: number;
-	}>,
-): Array<{
-	role: 'user' | 'model';
-	parts: Array<{ text: string }>;
-}> {
-	const aiConfig = {
-		maxRecentMessages: 15,
-		functionCallPrefix: 'Function ',
-		messages: {
-			previousContext: 'PREVIOUS CONVERSATION CONTEXT (READ THIS CAREFULLY):',
-			functionResults: 'Recent function call results (you can reference this data in your responses):',
-			functionResultItem: '{index}. {text}',
-		},
-	};
-
-	let conversation: Array<{
-		role: 'user' | 'model';
-		parts: Array<{ text: string }>;
-	}> = [
-		{
-			role: 'user',
-			parts: [{ text: contextualMessage }],
-		},
-	];
-
-	const recentMessages = conversationHistory.slice(-aiConfig.maxRecentMessages);
-	if (recentMessages.length > 0) {
-		const functionResultsInHistory = recentMessages.filter(
-			(msg) => msg.role === 'user' && msg.parts[0]?.text?.startsWith(aiConfig.functionCallPrefix),
-		);
-
-		let contextMessage = aiConfig.messages.previousContext;
-
-		const recentUserMessages = recentMessages
-			.filter((msg) => msg.role === 'user' && !msg.parts[0]?.text?.startsWith(aiConfig.functionCallPrefix))
-			.slice(-5);
-
-		if (recentUserMessages.length > 0) {
-			contextMessage += '\n\nRecent user requests:';
-			recentUserMessages.forEach((msg, index) => {
-				const text = msg.parts[0]?.text || '';
-
-				const userMessage = text.includes('User message: ') ? text.split('User message: ')[1] : text;
-				contextMessage += `\n${index + 1}. "${userMessage}"`;
-			});
-		}
-
-		if (functionResultsInHistory.length > 0) {
-			contextMessage += '\n\n' + aiConfig.messages.functionResults;
-			functionResultsInHistory.forEach((result, index) => {
-				contextMessage += `\n${index + 1}. ${result.parts[0].text}`;
-			});
-		}
-
-		conversation.unshift(
-			{
-				role: 'user',
-				parts: [{ text: contextMessage }],
-			},
-			...recentMessages.map((msg) => ({
-				role: msg.role,
-				parts: msg.parts,
-			})),
-		);
-	}
-
-	return conversation;
-}
-
-function extractNewChannelId(result: string): { newChannelId: string | null; cleanedResult: string } {
-	const regex = /NEW_CHANNEL_ID:(\d+)/;
-	const newChannelMatch = regex.exec(result);
-	if (newChannelMatch) {
-		return {
-			newChannelId: newChannelMatch[1],
-			cleanedResult: result.replace(/\s*NEW_CHANNEL_ID:\d+/, ''),
-		};
-	}
-	return { newChannelId: null, cleanedResult: result };
-}
-
-async function executeFunctionHandler(call: any, message: Message, handler: Function): Promise<any> {
-	const normalizedArgs = normalizeChannelArgs(call.args, message.channelId, message.guildId || '', call.name);
-	if (call.name === 'executeCode') {
-		return await handler(normalizedArgs, message);
-	}
-	return await handler(normalizedArgs);
-}
-
-async function processFunctionCall(
-	call: any,
-	message: Message,
-	functionResults: Array<{ name: string; result: any }>,
-	allFunctionResults: Array<{ name: string; result: any }>,
-): Promise<void> {
-	try {
-		if (!call.args || !call.name) return;
-
-		const handler = functionHandlers[call.name];
-		if (!handler) {
-			console.warn(`Unknown function: ${call.name}`);
-
-			const availableFunctions = Object.keys(functionHandlers);
-			const normalizedCallName = call.name.toLowerCase().replace(/_/g, '');
-			const suggestion = availableFunctions.find((fn) => fn.toLowerCase().replace(/_/g, '') === normalizedCallName);
-
-			let errorMessage = `Unknown function: ${call.name}`;
-			if (suggestion) {
-				errorMessage += `. Did you mean '${suggestion}'? Use exact function names from your tools.`;
-			}
-
-			const errorResult = { error: errorMessage };
-			functionResults.push({ name: call.name, result: errorResult });
-			allFunctionResults.push({ name: call.name, result: errorResult });
-			return;
-		}
-
-		setOperationContext({
-			message,
-			userId: message.author.id,
-			channelId: message.channelId,
-		});
-
-		try {
-			let result = await executeFunctionHandler(call, message, handler);
-
-			if (call.name === 'purgeChannel' && typeof result === 'string') {
-				const { newChannelId, cleanedResult } = extractNewChannelId(result);
-				if (newChannelId) {
-					newChannelIdFromPurge = newChannelId;
-					result = cleanedResult;
-				}
-			}
-
-			functionResults.push({ name: call.name, result });
-			allFunctionResults.push({ name: call.name, result });
-			console.log(`Function call result for ${call.name}:`, result);
-
-			await new Promise((resolve) => setTimeout(resolve, 500));
-		} finally {
-			clearOperationContext();
-		}
-	} catch (error) {
-		console.error('Call error:', error);
-		if (call.name) {
-			const errorResult = {
-				error: error instanceof Error ? error.message : 'Unknown error',
-			};
-			functionResults.push({ name: call.name, result: errorResult });
-			allFunctionResults.push({ name: call.name, result: errorResult });
-		}
-	}
-}
-
-async function processFunctionCalls(
-	response: any,
-	message: Message,
-	conversation: any[],
-	allFunctionResults: Array<{ name: string; result: any }>,
-): Promise<{ hasFunctionCalls: boolean; functionResults: Array<{ name: string; result: any }> }> {
-	if (!response.functionCalls?.length) {
-		return { hasFunctionCalls: false, functionResults: [] };
-	}
-
-	const functionResults: Array<{ name: string; result: any }> = [];
-
-	for (const call of response.functionCalls) {
-		await processFunctionCall(call, message, functionResults, allFunctionResults);
-	}
-
-	for (const funcResult of functionResults) {
-		conversation.push({
-			role: 'user',
-			parts: [{ text: `Function ${funcResult.name} returned: ${JSON.stringify(funcResult.result)}` }],
-		});
-	}
-
-	return { hasFunctionCalls: true, functionResults };
-}
-
-function extractTextFromParts(parts: any[]): string {
-	let text = '';
-	for (const part of parts) {
-		if (part.text && typeof part.text === 'string') {
-			text += part.text;
-		}
-	}
-	return text;
-}
-
-function extractTextFromCandidate(candidate: any): string {
-	if (!candidate.content?.parts) {
-		return '';
-	}
-	return extractTextFromParts(candidate.content.parts);
-}
-
-function extractResponseText(response: any): string {
-	if (!response.candidates) {
-		return '';
-	}
-
-	let responseText = '';
-	for (const candidate of response.candidates) {
-		responseText += extractTextFromCandidate(candidate);
-	}
-	return responseText;
-}
-
 async function generateAIContent(
 	aiClient: GoogleGenAI,
 	modelName: string,
@@ -704,6 +403,8 @@ async function generateAIContent(
 	conversation: any[],
 	message: Message,
 	allFunctionResults: Array<{ name: string; result: any }>,
+	executionLog: FunctionExecutionLogEntry[],
+	executedCallCache: Map<string, any>,
 ): Promise<{ hasMoreFunctionCalls: boolean; responseText: string }> {
 	const maxRetries = 3;
 	const retryDelay = 2000;
@@ -722,6 +423,8 @@ async function generateAIContent(
 				message,
 				conversation,
 				allFunctionResults,
+				executionLog,
+				executedCallCache,
 			);
 
 			return {
@@ -746,17 +449,50 @@ async function generateAIContent(
 	throw lastError;
 }
 
+async function generateFallbackResponse(aiClient: GoogleGenAI, latestUserMessage: string): Promise<string> {
+	try {
+		const fallback = await aiClient.models.generateContent({
+			model: 'gemini-flash-lite-latest',
+			contents: [
+				{
+					role: 'user',
+					parts: [
+						{
+							text: `The previous response was empty. Provide a concise, helpful reply (max two sentences) to this request: ${latestUserMessage}`,
+						},
+					],
+				},
+			],
+		});
+
+		const text = fallback.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+		if (text) {
+			return text;
+		}
+	} catch (error) {
+		console.error('Failed to generate fallback response:', error);
+	}
+	return `I received your request: ${latestUserMessage}. I could not retrieve additional context, but I am ready to help if you can clarify or provide more details.`;
+}
+
 async function processAIResponse(
 	aiClient: GoogleGenAI,
 	modelName: string,
 	config: any,
 	conversation: any[],
 	message: Message,
-): Promise<{ responseText: string; allFunctionResults: Array<{ name: string; result: any }> }> {
+	latestUserMessage: string,
+): Promise<{
+	responseText: string;
+	allFunctionResults: Array<{ name: string; result: any }>;
+	executionLog: FunctionExecutionLogEntry[];
+}> {
 	let responseText = '';
 	const maxRounds = 5;
 	let round = 0;
 	const allFunctionResults: Array<{ name: string; result: any }> = [];
+	const executedCallCache = new Map<string, any>();
+	const executionLog: FunctionExecutionLogEntry[] = [];
 
 	while (round < maxRounds) {
 		round++;
@@ -768,6 +504,8 @@ async function processAIResponse(
 			conversation,
 			message,
 			allFunctionResults,
+			executionLog,
+			executedCallCache,
 		);
 
 		if (!hasMoreFunctionCalls) {
@@ -780,7 +518,7 @@ async function processAIResponse(
 		console.warn('Reached maximum function call rounds');
 		try {
 			const maxRoundsResponse = await aiClient.models.generateContent({
-				model: 'gemini-flash-lite-latest',
+				model: 'gemini-flash-latest',
 				contents: [
 					{
 						role: 'user',
@@ -807,12 +545,17 @@ async function processAIResponse(
 		}
 	}
 
-	return { responseText, allFunctionResults };
+	if (!responseText.trim()) {
+		responseText = await generateFallbackResponse(aiClient, latestUserMessage);
+	}
+
+	return { responseText, allFunctionResults, executionLog };
 }
 
 async function sendFinalResponse(
 	message: Message,
 	responseText: string,
+	executionLog: FunctionExecutionLogEntry[] = [],
 	reactionAdded: boolean = false,
 ): Promise<void> {
 	let targetChannelOverride = null;
@@ -841,13 +584,16 @@ async function sendFinalResponse(
 
 	if (!targetChannel) return;
 
-	if (responseText.trim()) {
-		await sendResponseMessage(message, responseText, messageExists, channelExists, targetChannel);
-	} else {
-		console.log('No response text found, sending debug info');
-		const debugMessage = "I received your message but couldn't generate a response. Please check the logs for details.";
-		await sendResponseMessage(message, debugMessage, messageExists, channelExists, targetChannel);
+	let responsePayload = responseText.trim();
+	const checklist = formatExecutionSummary(executionLog);
+	if (checklist) {
+		responsePayload = responsePayload ? `${responsePayload}\n\n${checklist}` : checklist;
 	}
+	if (!responsePayload.trim()) {
+		console.log('No response text found, sending debug info');
+		responsePayload = "I received your message but couldn't generate a response. Please check the logs for details.";
+	}
+	await sendResponseMessage(message, responsePayload, messageExists, channelExists, targetChannel);
 
 	if (reactionAdded) {
 		try {
@@ -878,6 +624,14 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 		userMessage = userMessage.replace(new RegExp(`<@!?${message.client.user!.id}>`, 'g'), '').trim();
 	}
 
+	if (!userMessage.trim()) {
+		if (message.attachments.size > 0) {
+			userMessage = 'shared attachments without any text. Describe them briefly and respond naturally.';
+		} else {
+			userMessage = 'pinged you without adding any text. Continue the conversation based on their recent messages.';
+		}
+	}
+
 	const customResponse = await executeCustomCommand(message.guildId || '', userMessage);
 	if (customResponse) {
 		try {
@@ -897,9 +651,8 @@ export async function handleMessage(message: Message, aiClient: GoogleGenAI): Pr
 	}
 
 	try {
-		const tools = createAITools();
 		const config = createAIConfig(getCachedSettings(), [tools]);
-		const modelName = 'gemini-2.5-flash-lite';
+		const modelName = 'gemini-flash-latest';
 
 		const channelName = getChannelName(message);
 		const userName = message.author.username;
@@ -918,6 +671,8 @@ User @${userName} says: ${userMessage}
 - If user asks to try differently or use different method, DO IT - don't repeat old answers
 - Previous messages are ONLY for context - focus on the CURRENT request
 - If you failed before, try a DIFFERENT approach this time
+- If the user greets you or makes casual small talk, respond naturally, share how you're doing, and keep the conversation going without demanding extra context or refusing the message
+- If the user throws an insult or vents, stay upbeat, answer with playful confidence, and pivot toward helping them without sounding offended
 
 🔍 ACCURACY REQUIREMENTS:
 - VERIFY all facts against actual data from API responses or code execution
@@ -929,38 +684,27 @@ User @${userName} says: ${userMessage}
 		const fetchedMessages = await textChannel.messages.fetch({ limit: 10, before: message.id });
 		const messagesArray = Array.from(fetchedMessages.values())
 			.sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-			.filter((msg) => msg.content.trim())
 			.slice(-6);
 
-		const conversationHistory = messagesArray.map((msg) => {
-			const author = msg.author.username;
-			const isBot = msg.author.bot;
-			const isCurrentUser = msg.author.id === userId;
+		const historyEntries = await Promise.all(
+			messagesArray.map((msg) => createConversationEntryFromMessage(msg, aiClient, userId)),
+		);
+		const conversationHistory = historyEntries.filter((entry): entry is ConversationHistoryEntry => entry !== null);
+		const contextualParts: ConversationPart[] = [{ text: contextualMessage }];
+		const conversation = buildConversationContext(contextualParts, conversationHistory);
 
-			if (isBot) {
-				const cleanContent = msg.content.replace(/^\[Responding to @\w+\]\s*/i, '');
-
-				return {
-					role: 'model' as const,
-					parts: [{ text: cleanContent }],
-					timestamp: msg.createdTimestamp,
-				};
-			} else {
-				return {
-					role: 'user' as const,
-					parts: [{ text: `${isCurrentUser ? '[SAME USER] ' : '[DIFFERENT USER] '}@${author}: ${msg.content}` }],
-					timestamp: msg.createdTimestamp,
-				};
-			}
-		});
-
-		const conversation = buildConversationContext(contextualMessage, conversationHistory);
-
-		const { responseText } = await processAIResponse(aiClient, modelName, config, conversation, message);
+		const { responseText, executionLog } = await processAIResponse(
+			aiClient,
+			modelName,
+			config,
+			conversation,
+			message,
+			userMessage,
+		);
 
 		console.log('Final response text:', responseText);
 
-		await sendFinalResponse(message, responseText, reactionAdded);
+		await sendFinalResponse(message, responseText, executionLog, reactionAdded);
 	} catch (error) {
 		console.error('Error:', error);
 		const { messageExists, channelExists, targetChannel } = await checkMessageAndChannelAccess(message);
@@ -990,7 +734,7 @@ User @${userName} says: ${userMessage}
 			let errorMessage = 'Sorry, I encountered an error processing your message.';
 			try {
 				const errorResponse = await aiClient.models.generateContent({
-					model: 'gemini-flash-lite-latest',
+					model: 'gemini-flash-latest',
 					contents: [
 						{
 							role: 'user',
