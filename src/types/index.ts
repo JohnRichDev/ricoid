@@ -174,6 +174,15 @@ export interface SearchData {
 	limit?: number;
 }
 
+export interface WebsiteScreenshotData extends ChannelIdentifier {
+	url: string;
+	fullPage?: boolean;
+	width?: number;
+	height?: number;
+	deviceScaleFactor?: number;
+	delayMs?: number;
+}
+
 export interface ServerStatsData extends ServerIdentifier {}
 
 export interface DiscordOperations {
@@ -196,6 +205,7 @@ export interface DiscordOperations {
 	getWeather(data: WeatherData): Promise<string>;
 	translate(data: TranslateData): Promise<string>;
 	search(data: SearchData): Promise<string>;
+	screenshotWebsite(data: WebsiteScreenshotData): Promise<string>;
 	getServerStats(data: ServerStatsData): Promise<string>;
 	getAuditLogs(data: AuditLogData): Promise<string>;
 	createInvite(data: InviteData): Promise<string>;
