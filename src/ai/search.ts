@@ -70,9 +70,9 @@ export async function DFINT(
 		console.log(`[DFINT] Using AI-powered search only (no web scraping)`);
 	}
 
-	const apiKey = process.env.GEMINI_API_KEY;
+	const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
 	if (!apiKey) {
-		throw new Error('GEMINI_API_KEY environment variable is not set');
+		throw new Error('Missing API key: set GOOGLE_API_KEY (preferred) or GEMINI_API_KEY');
 	}
 
 	const ai = new GoogleGenAI({
@@ -92,18 +92,11 @@ export async function DFINT(
 			{
 				text: `You are DFINT - Digital Footprint Intelligence, an advanced research assistant.
 				
-Your mission is to perform comprehensive web intelligence gathering on the given query.
-Conduct a ${depth} analysis and provide:
-1. Overview and context
-2. Key findings and facts
-3. Related information and connections
-4. Sources and references when available
-${includeNews ? '5. Recent news and developments\n' : ''}${includeImages ? '6. Relevant visual content (image URLs)\n' : ''}
+Perform comprehensive web intelligence gathering on the given query.
+Conduct a ${depth} analysis.
+${includeNews ? 'Include recent news and developments.\n' : ''}${includeImages ? 'Include relevant visual content.\n' : ''}
 Search depth: ${depth}
-Maximum results: ${maxResults}
-
-Be thorough, factual, and organize information clearly. Prioritize recent and reliable sources.
-When finding information, use the Google Search tool to gather comprehensive results.`,
+Maximum results: ${maxResults}`,
 			},
 		],
 	};
@@ -112,11 +105,11 @@ When finding information, use the Google Search tool to gather comprehensive res
 
 	const searchPrompt = `Conduct digital footprint intelligence on: "${query}"
 	
-Perform a comprehensive ${depth} search and analysis. 
-${includeImages ? 'Include relevant image URLs.\n' : ''}${includeNews ? 'Include recent news and updates.\n' : ''}Limit to approximately ${maxResults} key findings.
+Depth: ${depth}
+${includeImages ? 'Include images.\n' : ''}${includeNews ? 'Include news.\n' : ''}Max results: ${maxResults}
 
-${scrapedContent ? `Additional scraped content from web:\n${scrapedContent}\n\n` : ''}
-${searchResults.length > 0 ? `Search results from ${engines.join(', ')}:\n${searchResults.map((r) => `- ${r.title} (${r.url})\n  ${r.snippet}`).join('\n\n')}\n\n` : ''}
+${scrapedContent ? `Scraped content:\n${scrapedContent}\n\n` : ''}
+${searchResults.length > 0 ? `Results from ${engines.join(', ')}:\n${searchResults.map((r) => `- ${r.title} (${r.url})\n  ${r.snippet}`).join('\n\n')}\n\n` : ''}
 
 Provide organized, actionable intelligence.`;
 
@@ -190,9 +183,9 @@ Provide organized, actionable intelligence.`;
 }
 
 export async function performSearch(query: string, type: 'web' | 'images' | 'news', limit?: number): Promise<string> {
-	const apiKey = process.env.GEMINI_API_KEY;
+	const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
 	if (!apiKey) {
-		throw new Error('GEMINI_API_KEY environment variable is not set');
+		throw new Error('Missing API key: set GOOGLE_API_KEY (preferred) or GEMINI_API_KEY');
 	}
 
 	const ai = new GoogleGenAI({
@@ -208,12 +201,10 @@ export async function performSearch(query: string, type: 'web' | 'images' | 'new
 		tools,
 		systemInstruction: [
 			{
-				text: `You are a search assistant. When given a search query, provide BRIEF, concise results.
-				Keep your response SHORT - aim for 2-4 sentences with only the most essential information.
-				Focus on factual, up-to-date information. Be direct and to the point.
+				text: `You are a search assistant. Perform the requested search and provide relevant results.
 				Search type: ${type}
 				${limit ? `Limit results to approximately ${limit} items.` : ''}
-				${type === 'images' ? '\n**CRITICAL FOR IMAGE SEARCHES**: You MUST provide actual image URLs. Find and return direct links to images (URLs ending in .jpg, .png, .webp, etc.) that the user can view. Format your response as a list of image URLs, one per line. Do NOT just describe what images might look like - provide actual working URLs.' : ''}`,
+				If no meaningful results exist, say "No results found".`,
 			},
 		],
 	};
@@ -292,20 +283,7 @@ export async function performSearch(query: string, type: 'web' | 'images' | 'new
 
 function generateSearchPrompt(query: string, type: 'web' | 'images' | 'news', limit?: number): string {
 	const limitText = limit ? ` (limit to ${limit} results)` : '';
-
-	switch (type) {
-		case 'web':
-			return `Perform a web search for: "${query}"${limitText}. Provide the most relevant and up-to-date information available. Include key facts, sources if possible, and organize the information clearly.`;
-
-		case 'images':
-			return `Search for images of: "${query}"${limitText}. **CRITICAL**: You MUST find and return actual, working image URLs. Use Google Search to find images and extract their direct URLs (links ending in .jpg, .png, .webp, .gif, etc.). Provide a list of image URLs, one per line, that users can click to view the images. Do NOT describe what images would look like - provide ACTUAL URLs. If you find image results, extract and return their direct URLs.`;
-
-		case 'news':
-			return `Search for recent news about: "${query}"${limitText}. Focus on current events, recent developments, and the latest information. Provide headlines, key points, and dates when relevant.`;
-
-		default:
-			return `Search for information about: "${query}"${limitText}`;
-	}
+	return `Search for: "${query}"${limitText}. Type: ${type}.`;
 }
 
 async function searchWithEngine(
