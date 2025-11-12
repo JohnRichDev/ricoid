@@ -98,6 +98,57 @@ export async function createEmbed({
 		const stringValue = String(value).trim();
 		return stringValue.length ? stringValue : null;
 	};
+	const ZERO_WIDTH_SPACE = '\u200b';
+	const splitFromSeparators = (text: string) => {
+		const separators = [
+			'\n\n',
+			'\r\n\r\n',
+			'\r\n',
+			'\n',
+			' — ',
+			' – ',
+			' - ',
+			': ',
+			' | ',
+			' • ',
+			' ~ ',
+			' → ',
+			' => ',
+		];
+		for (const separator of separators) {
+			const index = text.indexOf(separator);
+			if (index > 0) {
+				const name = text.slice(0, index).trim();
+				const value = text.slice(index + separator.length).trim();
+				if (name) return { name, value };
+			}
+		}
+		return null;
+	};
+	const deriveFieldPartsFromString = (raw: string, index: number) => {
+		const condensed = raw.replace(/\s+/g, ' ').trim();
+		if (!condensed) return { name: `Entry ${index + 1}`, value: ZERO_WIDTH_SPACE };
+		let name = '';
+		let value = '';
+		const separatorResult = splitFromSeparators(raw);
+		if (separatorResult) {
+			name = separatorResult.name;
+			value = separatorResult.value;
+		}
+		if (!name) {
+			const sentenceMatch = condensed.match(/^(.{20,140}?[.!?])\s+(.*)$/s);
+			if (sentenceMatch) {
+				name = sentenceMatch[1].trim();
+				value = sentenceMatch[2].trim();
+			}
+		}
+		if (!name) {
+			name = condensed.length <= 80 ? condensed : condensed.slice(0, 80).trim();
+			value = condensed.length > 80 ? condensed.slice(name.length).trim() : '';
+		}
+		if (!value) value = condensed !== name ? condensed : ZERO_WIDTH_SPACE;
+		return { name, value };
+	};
 	const normalizeFields = (rawFields: unknown) => {
 		if (!Array.isArray(rawFields)) {
 			return [];
@@ -134,26 +185,8 @@ export async function createEmbed({
 				if (!trimmed) {
 					return;
 				}
-				let name = '';
-				let value = trimmed;
-				const colonIndex = trimmed.indexOf(':');
-				if (colonIndex > 0) {
-					name = trimmed.slice(0, colonIndex).trim();
-					value = trimmed.slice(colonIndex + 1).trim();
-				} else {
-					const pipeIndex = trimmed.indexOf('|');
-					if (pipeIndex > 0) {
-						name = trimmed.slice(0, pipeIndex).trim();
-						value = trimmed.slice(pipeIndex + 1).trim();
-					}
-				}
-				if (!name) {
-					name = `Field ${index + 1}`;
-				}
-				if (!value) {
-					value = 'N/A';
-				}
-				normalized.push({ name: clamp(name, 256), value: clamp(value, 1024) });
+				const { name, value } = deriveFieldPartsFromString(trimmed, index);
+				normalized.push({ name: clamp(name, 256), value: clamp(value || ZERO_WIDTH_SPACE, 1024) });
 			}
 		});
 		return normalized;
@@ -161,8 +194,39 @@ export async function createEmbed({
 
 	const normalizedTitle = setString(title);
 	if (normalizedTitle) embed.title = clamp(normalizedTitle, 256);
-	const normalizedDescription = setString(description);
-	if (normalizedDescription) embed.description = clamp(normalizedDescription, 4096);
+
+	let normalizedDescription = setString(description);
+	let extractedFieldsFromDescription: Array<{ name: string; value: string; inline?: boolean }> = [];
+	if (normalizedDescription) {
+		let working = normalizedDescription;
+		working = working.replace(/"inline"\s+(true|false)/gi, '"inline": $1');
+		const candidates = working.match(/\{[\s\S]*?\}/g) || [];
+		for (const raw of candidates) {
+			try {
+				const parsed = JSON.parse(raw);
+				const n = setString((parsed as any).name);
+				const v = setString((parsed as any).value);
+				let inl: boolean | undefined = undefined;
+				if (typeof (parsed as any).inline === 'boolean') inl = (parsed as any).inline;
+				else if (typeof (parsed as any).inline === 'string') {
+					const lw = ((parsed as any).inline as string).trim().toLowerCase();
+					if (lw === 'true') inl = true;
+					if (lw === 'false') inl = false;
+				}
+				if (n && v) {
+					extractedFieldsFromDescription.push({
+						name: clamp(n, 256),
+						value: clamp(v, 1024),
+						...(typeof inl === 'boolean' ? { inline: inl } : {}),
+					});
+					working = working.replace(raw, '').trim();
+				}
+			} catch {}
+		}
+		normalizedDescription = working.trim();
+		if (!normalizedDescription || normalizedDescription.length === 0) normalizedDescription = null as any;
+	}
+	if (normalizedDescription && normalizedDescription.length > 0) embed.description = clamp(normalizedDescription, 4096);
 	if (color) {
 		const parsedColor = parseHexColor(color);
 		if (parsedColor !== null) {
@@ -170,6 +234,7 @@ export async function createEmbed({
 		}
 	}
 	const normalizedFields = normalizeFields(fields);
+	if (extractedFieldsFromDescription.length > 0) normalizedFields.push(...extractedFieldsFromDescription);
 	if (normalizedFields.length > 0) embed.fields = normalizedFields;
 	if (footer && typeof footer === 'object') {
 		const footerText = setString((footer as any).text);
