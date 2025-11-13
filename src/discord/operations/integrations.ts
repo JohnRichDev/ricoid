@@ -102,13 +102,26 @@ export async function search(data: {
 	limit?: number;
 }): Promise<string> {
 	try {
-		const { query, type, limit } = data;
+		let { query, type, limit } = data;
 
 		if (!query || query.trim().length === 0) {
 			return 'Please provide a search query.';
 		}
 
+		query = query.trim();
+		if (!type) {
+			type = 'web';
+		}
+
 		const result = await performSearch(query, type, limit);
+		const normalizedResult = result.trim();
+		const isEmptyResult =
+			!normalizedResult || /No results found/i.test(normalizedResult) || normalizedResult.length < 40;
+
+		if (isEmptyResult) {
+			return `Search for "${query}" (type: ${type}) yielded insufficient results. Try reformulating the query with different keywords, more specific terms, or broader context. For news searches, consider adding temporal keywords or related topics.`;
+		}
+
 		return result;
 	} catch (error: any) {
 		console.error('Search operation error:', error);
@@ -147,7 +160,7 @@ function summarizeDfintResult(raw: string, query: string): string {
 		.filter((line) => line.length > 0 && !/^[-=_]{3,}$/.test(line));
 	const entries: Array<{ title: string; content: string[] }> = [];
 	const sources: string[] = [];
-	let currentTitle = 'Key Points';
+	let currentTitle = 'Overview';
 	let currentContent: string[] = [];
 	let currentIsSources = false;
 	const pushEntry = () => {
@@ -183,22 +196,21 @@ function summarizeDfintResult(raw: string, query: string): string {
 	}
 	pushEntry();
 	const formattedEntries = entries
-		.map(({ title, content }) => {
+		.map(({ content }) => {
 			const combined = content.join(' ').replace(/\s+/g, ' ').trim();
 			if (!combined) {
 				return '';
 			}
-			return `- ${title}: ${truncateToSentence(combined, 280)}`;
+			return truncateToSentence(combined, 180);
 		})
 		.filter((entry) => entry.length > 0)
-		.slice(0, 4);
-	const summaryHeader = `Summary for "${query}"`;
-	const summaryBody = formattedEntries.length > 0 ? formattedEntries.join('\n') : 'No notable findings available.';
+		.slice(0, 2);
+	const summaryBody = formattedEntries.length > 0 ? formattedEntries.join(' ') : 'No information available.';
 	if (sources.length === 0) {
-		return `${summaryHeader}\n\n${summaryBody}`;
+		return `**${query}**: ${summaryBody}`;
 	}
-	const formattedSources = sources.slice(0, 5).map((line) => `- ${line}`);
-	return `${summaryHeader}\n\n${summaryBody}\n\nSources\n${formattedSources.join('\n')}`;
+	const topSource = sources[0].replace(/^https?:\/\//, '').split('/')[0];
+	return `**${query}**: ${summaryBody} (${topSource})`;
 }
 
 export async function dfint(data: {
