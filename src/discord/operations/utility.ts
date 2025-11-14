@@ -5,35 +5,27 @@ function playRockPaperScissors(userChoice?: string): string {
 	const botChoice = choices[Math.floor(Math.random() * choices.length)];
 
 	if (!userChoice || !choices.includes(userChoice.toLowerCase())) {
-		return `Invalid choice! Please choose: ${choices.join(', ')}`;
+		return JSON.stringify({ error: 'invalid_choice', choices });
 	}
 
 	const user = userChoice.toLowerCase();
-	let result = `You chose: ${user}\nBot chose: ${botChoice}\n\n`;
-
-	if (user === botChoice) {
-		result += "It's a tie!";
-	} else if (
+	const isTie = user === botChoice;
+	const userWins =
 		(user === 'rock' && botChoice === 'scissors') ||
 		(user === 'paper' && botChoice === 'rock') ||
-		(user === 'scissors' && botChoice === 'paper')
-	) {
-		result += 'You win!';
-	} else {
-		result += 'Bot wins!';
-	}
+		(user === 'scissors' && botChoice === 'paper');
 
-	return result;
+	return JSON.stringify({ userChoice: user, botChoice, tie: isTie, userWins: !isTie && userWins });
 }
 
 function playCoinFlip(): string {
 	const coinResult = Math.random() < 0.5 ? 'heads' : 'tails';
-	return `Coin flip result: **${coinResult.toUpperCase()}**`;
+	return JSON.stringify({ result: coinResult });
 }
 
 function playDice(): string {
 	const diceRoll = Math.floor(Math.random() * 6) + 1;
-	return `Dice roll result: **${diceRoll}**`;
+	return JSON.stringify({ roll: diceRoll });
 }
 
 function playNumberGuess(userChoice?: string): string {
@@ -41,16 +33,13 @@ function playNumberGuess(userChoice?: string): string {
 	const guess = parseInt(userChoice || '0');
 
 	if (isNaN(guess)) {
-		return 'Please provide a valid number to guess!';
+		return JSON.stringify({ error: 'invalid_number' });
 	}
 
-	if (guess === targetNumber) {
-		return `Correct! The number was ${targetNumber}`;
-	} else if (guess < targetNumber) {
-		return `Too low! Try a higher number.`;
-	} else {
-		return `Too high! Try a lower number.`;
-	}
+	const correct = guess === targetNumber;
+	const hint = guess < targetNumber ? 'too_low' : guess > targetNumber ? 'too_high' : null;
+
+	return JSON.stringify({ guess, target: targetNumber, correct, hint });
 }
 
 export async function playGame({ type, userChoice }: GameData): Promise<string> {
@@ -75,22 +64,25 @@ export async function playGame({ type, userChoice }: GameData): Promise<string> 
 export async function calculate({ expression }: CalculatorData): Promise<string> {
 	try {
 		if (!expression || expression.trim() === '') {
-			return 'Please provide a mathematical expression to evaluate.';
+			return JSON.stringify({ error: 'empty_expression' });
 		}
 
 		const sanitizedExpression = expression.replace(/[^0-9+\-*/().,^\s]/g, '');
 		if (sanitizedExpression.trim() === '') {
-			return 'Invalid expression provided.';
+			return JSON.stringify({ error: 'invalid_expression' });
 		}
 
 		const result = Function(`"use strict"; return (${sanitizedExpression})`)();
 
 		if (typeof result === 'number' && Number.isFinite(result)) {
-			return `Result: ${result}`;
+			return JSON.stringify({ expression, result });
 		}
 
-		return 'Unable to evaluate the expression.';
+		return JSON.stringify({ error: 'evaluation_failed' });
 	} catch (error) {
-		return `Error: ${error instanceof Error ? error.message : 'Invalid expression'}`;
+		return JSON.stringify({
+			error: 'evaluation_error',
+			message: error instanceof Error ? error.message : 'Invalid expression',
+		});
 	}
 }

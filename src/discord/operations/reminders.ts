@@ -7,15 +7,13 @@ import { findSuitableChannel } from './channelManagement.js';
 import type { TextChannel } from 'discord.js';
 
 function formatReminderSetupMessage(message: string, reminderTime: Date, user?: string, channel?: string) {
-	let result = `Reminder set!\n`;
-	result += `Message: "${message}"\n`;
-	result += `Time: ${reminderTime.toLocaleString()}\n`;
-
-	if (user) result += `For user: ${user}\n`;
-	if (channel) result += `In channel: ${channel}\n`;
-	result += `\nReminder will be sent at the specified time.`;
-
-	return result;
+	return JSON.stringify({
+		type: 'reminder_set',
+		message,
+		time: reminderTime.toISOString(),
+		user,
+		channel,
+	});
 }
 
 async function findReminderTarget(server: string | undefined, channel: string | undefined) {
