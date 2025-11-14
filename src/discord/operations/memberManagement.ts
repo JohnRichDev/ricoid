@@ -40,48 +40,7 @@ function findMemberByName(guild: Guild, user: string) {
 }
 
 function getPresenceStatus(member: any): string {
-	if (!member.presence) return 'Offline';
-
-	const statusMap: Record<string, string> = {
-		online: 'Online',
-		idle: 'Idle',
-		dnd: 'Do Not Disturb',
-		invisible: 'Offline',
-		offline: 'Offline',
-	};
-
-	return statusMap[member.presence.status] || 'Offline';
-}
-
-function formatUserBasicInfo(member: any) {
-	return [
-		`**Basic Info:**`,
-		`Username: ${member.user.username}`,
-		`Display Name: ${member.displayName}`,
-		`User ID: ${member.user.id}`,
-		`Bot: ${member.user.bot ? 'Yes' : 'No'}`,
-	];
-}
-
-function formatUserServerInfo(member: any) {
-	const roles = member.roles.cache.map((r: any) => r.name).join(', ');
-	const joinDate = member.joinedAt?.toDateString() || 'Unknown';
-	const accountCreated = member.user.createdAt.toDateString();
-
-	return [
-		`**Server Info:**`,
-		`Joined Server: ${joinDate}`,
-		`Account Created: ${accountCreated}`,
-		`Roles: ${roles || 'None'}`,
-		`Highest Role: ${member.roles.highest.name}`,
-	];
-}
-
-function formatUserStatus(member: any) {
-	const status = getPresenceStatus(member);
-	const activities = member.presence?.activities?.map((a: any) => a.name).join(', ') || 'None';
-
-	return [`**Status:**`, `Online Status: ${status}`, `Activities: ${activities}`];
+	return member.presence?.status || 'offline';
 }
 
 export async function getUserInfo({ server, user }: UserInfoData): Promise<string> {
@@ -99,20 +58,22 @@ export async function getUserInfo({ server, user }: UserInfoData): Promise<strin
 		}
 
 		if (!member) {
-			return `User "${user}" not found in ${guild.name}.`;
+			return JSON.stringify({ error: 'user_not_found', user, server: guild.name });
 		}
 
-		const info = [
-			`**User Information for ${member.user.tag}**`,
-			``,
-			...formatUserBasicInfo(member),
-			``,
-			...formatUserServerInfo(member),
-			``,
-			...formatUserStatus(member),
-		].join('\n');
-
-		return info;
+		return JSON.stringify({
+			username: member.user.username,
+			tag: member.user.tag,
+			displayName: member.displayName,
+			userId: member.user.id,
+			bot: member.user.bot,
+			joinedAt: member.joinedAt?.toISOString(),
+			accountCreated: member.user.createdAt.toISOString(),
+			roles: member.roles.cache.map((r: any) => r.name),
+			highestRole: member.roles.highest.name,
+			status: getPresenceStatus(member),
+			activities: member.presence?.activities?.map((a: any) => a.name) || [],
+		});
 	} catch (error) {
 		throw new Error(`Failed to get user info: ${error}`);
 	}
@@ -138,18 +99,18 @@ function findRole(guild: Guild, roleName: string) {
 
 async function handleAddRole(member: any, role: any, guild: Guild) {
 	if (member.roles.cache.has(role.id)) {
-		return `User ${member.user.tag} already has the role "${role.name}".`;
+		return JSON.stringify({ error: 'already_has_role', user: member.user.tag, role: role.name });
 	}
 	await member.roles.add(role);
-	return `Added role "${role.name}" to ${member.user.tag} in ${guild.name}.`;
+	return JSON.stringify({ action: 'role_added', user: member.user.tag, role: role.name, server: guild.name });
 }
 
 async function handleRemoveRole(member: any, role: any, guild: Guild) {
 	if (!member.roles.cache.has(role.id)) {
-		return `User ${member.user.tag} does not have the role "${role.name}".`;
+		return JSON.stringify({ error: 'role_not_found', user: member.user.tag, role: role.name });
 	}
 	await member.roles.remove(role);
-	return `Removed role "${role.name}" from ${member.user.tag} in ${guild.name}.`;
+	return JSON.stringify({ action: 'role_removed', user: member.user.tag, role: role.name, server: guild.name });
 }
 
 export async function manageUserRole({ server, user, roleName, action }: RoleManagementData): Promise<string> {
@@ -201,30 +162,28 @@ export async function moderateUser({ server, user, action, reason, duration }: M
 			return `User "${user}" not found in ${guild.name}.`;
 		}
 
-		const reasonText = reason ? ` Reason: ${reason}` : '';
-
 		switch (action) {
 			case 'kick':
 				await member.kick(reason || 'No reason provided');
-				return `Kicked ${member.user.tag} from ${guild.name}.${reasonText}`;
+				return JSON.stringify({ action: 'kicked', user: member.user.tag, server: guild.name, reason });
 
 			case 'ban':
 				await guild.members.ban(member, { reason: reason || 'No reason provided' });
-				return `Banned ${member.user.tag} from ${guild.name}.${reasonText}`;
+				return JSON.stringify({ action: 'banned', user: member.user.tag, server: guild.name, reason });
 
 			case 'timeout': {
-				if (!duration) return 'Duration is required for timeout action.';
+				if (!duration) return JSON.stringify({ error: 'duration_required' });
 				const timeoutMs = duration * 60 * 1000;
 				await member.timeout(timeoutMs, reason || 'No reason provided');
-				return `Timed out ${member.user.tag} for ${duration} minutes in ${guild.name}.${reasonText}`;
+				return JSON.stringify({ action: 'timeout', user: member.user.tag, duration, server: guild.name, reason });
 			}
 
 			case 'untimeout':
 				await member.timeout(null, reason || 'No reason provided');
-				return `Removed timeout from ${member.user.tag} in ${guild.name}.${reasonText}`;
+				return JSON.stringify({ action: 'untimeout', user: member.user.tag, server: guild.name, reason });
 
 			default:
-				return `Invalid moderation action. Use: kick, ban, timeout, or untimeout.`;
+				return JSON.stringify({ error: 'invalid_action', validActions: ['kick', 'ban', 'timeout', 'untimeout'] });
 		}
 	} catch (error) {
 		throw new Error(`Failed to moderate user: ${error}`);
@@ -250,7 +209,7 @@ export async function createRole({ server, name, color, permissions }: CreateRol
 			permissions: (permissions as any) || [],
 		});
 
-		return `Role "${role.name}" created with ID: ${role.id}`;
+		return JSON.stringify({ action: 'role_created', name: role.name, id: role.id, color: role.hexColor });
 	} catch (error) {
 		throw new Error(`Failed to create role: ${error}`);
 	}
@@ -279,7 +238,12 @@ export async function editRole({ server, roleName, newName, newColor }: EditRole
 			color: colorToSet,
 		});
 
-		return `Role "${roleName}" updated`;
+		return JSON.stringify({
+			action: 'role_updated',
+			oldName: roleName,
+			newName: newName || roleName,
+			color: role.hexColor,
+		});
 	} catch (error) {
 		throw new Error(`Failed to edit role: ${error}`);
 	}
