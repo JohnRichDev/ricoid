@@ -4,324 +4,12 @@ import { getCachedSettings } from '../config/index.js';
 import { createAIConfig, createAITools } from '../ai/index.js';
 import { discordClient } from '../discord/client.js';
 import { findSuitableChannel, executeCustomCommand } from '../discord/operations.js';
-import { setOperationContext, clearOperationContext } from '../util/confirmedOperations.js';
-import { normalizeChannelArgs } from './message/normalize.js';
-import { functionHandlers } from './message/functionHandlers.js';
-import {
-	buildConversationContext,
-	extractResponseText,
-	createConversationEntryFromMessage,
-} from './message/conversation.js';
+import { processAIResponse } from './message/aiProcessing.js';
+import { buildConversationContext, createConversationEntryFromMessage } from './message/conversation.js';
 import type { ConversationHistoryEntry, ConversationPart } from './message/types.js';
 
 let newChannelIdFromPurge: string | null = null;
 const tools = createAITools();
-
-type FunctionExecutionStatus = 'success' | 'error' | 'skipped';
-type FunctionExecutionLogEntry = {
-	name: string;
-	args: any;
-	status: FunctionExecutionStatus;
-	result: any;
-};
-
-function stableStringify(value: any): string {
-	if (value === undefined) {
-		return 'undefined';
-	}
-	if (value === null) {
-		return 'null';
-	}
-	if (typeof value === 'string') {
-		return JSON.stringify(value);
-	}
-	if (typeof value === 'number' || typeof value === 'boolean') {
-		return JSON.stringify(value);
-	}
-	if (Array.isArray(value)) {
-		return `[${value.map((item) => stableStringify(item)).join(',')}]`;
-	}
-	if (typeof value === 'object') {
-		const keys = Object.keys(value).sort();
-		return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
-	}
-	return JSON.stringify(String(value));
-}
-
-function createCallSignature(name: string, args: any): string {
-	return `${name}:${stableStringify(args)}`;
-}
-
-function formatDuplicateMessage(name: string, previousResult: any): string {
-	let formattedResult: string;
-	if (typeof previousResult === 'string') {
-		formattedResult = previousResult;
-	} else {
-		try {
-			formattedResult = JSON.stringify(previousResult);
-		} catch {
-			formattedResult = String(previousResult);
-		}
-	}
-	return `Duplicate call for ${name} skipped. Previous result: ${formattedResult}`;
-}
-
-function extractNewChannelId(result: string): { newChannelId: string | null; cleanedResult: string } {
-	const regex = /NEW_CHANNEL_ID:(\d+)/;
-	const newChannelMatch = regex.exec(result);
-	if (newChannelMatch) {
-		return {
-			newChannelId: newChannelMatch[1],
-			cleanedResult: result.replace(/\s*NEW_CHANNEL_ID:\d+/, ''),
-		};
-	}
-	return { newChannelId: null, cleanedResult: result };
-}
-
-function normalizeSummaryText(value: string): string {
-	return value.replace(/\s+/g, ' ').trim();
-}
-
-function truncateSummary(value: string, maxLength: number = 160): string {
-	if (value.length <= maxLength) {
-		return value;
-	}
-	return `${value.slice(0, Math.max(0, maxLength - 3))}...`;
-}
-
-function formatResultSummary(result: any): string {
-	if (result === undefined || result === null) {
-		return '';
-	}
-	if (typeof result === 'string') {
-		return truncateSummary(normalizeSummaryText(result));
-	}
-	if (typeof result === 'object') {
-		if ('error' in result && typeof (result as any).error === 'string') {
-			return truncateSummary(normalizeSummaryText((result as any).error));
-		}
-		try {
-			return truncateSummary(JSON.stringify(result));
-		} catch {
-			return '';
-		}
-	}
-	return truncateSummary(normalizeSummaryText(String(result)));
-}
-
-function getStatusEmoji(status: FunctionExecutionStatus): string {
-	if (status === 'success') {
-		return '✅';
-	}
-	if (status === 'error') {
-		return '❌';
-	}
-	return '⚠️';
-}
-
-function formatExecutionSummary(executionLog: FunctionExecutionLogEntry[]): string {
-	if (!executionLog.length) {
-		return '';
-	}
-	const lines = executionLog.map((entry, index) => {
-		const emoji = getStatusEmoji(entry.status);
-		const summary = formatResultSummary(entry.result);
-		return summary ? `${index + 1}. ${emoji} ${entry.name} — ${summary}` : `${index + 1}. ${emoji} ${entry.name}`;
-	});
-	return `📋 Action Checklist\n${lines.join('\n')}`;
-}
-
-async function executeFunctionHandler(
-	call: any,
-	message: Message,
-	handler: Function,
-	normalizedArgs?: any,
-): Promise<any> {
-	const argsToUse =
-		normalizedArgs ?? normalizeChannelArgs(call.args, message.channelId, message.guildId || '', call.name);
-	if (call.name === 'executeCode') {
-		return await handler(argsToUse, message);
-	}
-	return await handler(argsToUse);
-}
-
-async function processFunctionCall(
-	call: any,
-	message: Message,
-	functionResults: Array<{ name: string; result: any }>,
-	allFunctionResults: Array<{ name: string; result: any }>,
-	executionLog: FunctionExecutionLogEntry[],
-	executedCallCache: Map<string, any>,
-	functionAttemptCounts: Map<string, number>,
-): Promise<void> {
-	let callSignature: string | null = null;
-	let logEntry: FunctionExecutionLogEntry | null = null;
-	try {
-		if (!call.args || !call.name) return;
-
-		const handler = functionHandlers[call.name];
-		if (!handler) {
-			console.warn(`Unknown function: ${call.name}`);
-
-			const availableFunctions = Object.keys(functionHandlers);
-			const normalizedCallName = call.name.toLowerCase().replace(/_/g, '');
-			const suggestion = availableFunctions.find((fn) => fn.toLowerCase().replace(/_/g, '') === normalizedCallName);
-
-			let errorMessage = `Unknown function: ${call.name}`;
-			if (suggestion) {
-				errorMessage += `. Did you mean '${suggestion}'? Use exact function names from your tools.`;
-			}
-
-			const errorResult = { error: errorMessage };
-			functionResults.push({ name: call.name, result: errorResult });
-			allFunctionResults.push({ name: call.name, result: errorResult });
-			executionLog.push({
-				name: call.name,
-				args: call.args ?? null,
-				status: 'error',
-				result: errorResult,
-			});
-			return;
-		}
-
-		const attemptCount = (functionAttemptCounts.get(call.name) ?? 0) + 1;
-		functionAttemptCounts.set(call.name, attemptCount);
-		if (call.name === 'screenshotWebsite' && attemptCount > 1) {
-			const info =
-				'Screenshot already captured for this request. Ask for another screenshot explicitly in a new message if you need a fresh capture.';
-			functionResults.push({ name: call.name, result: info });
-			allFunctionResults.push({ name: call.name, result: info });
-			executionLog.push({
-				name: call.name,
-				args: call.args ?? null,
-				status: 'skipped',
-				result: info,
-			});
-			console.log(info);
-			return;
-		}
-
-		const clonedArgs =
-			typeof call.args === 'object' && call.args !== null && !Array.isArray(call.args) ? { ...call.args } : call.args;
-		const normalizedArgs = normalizeChannelArgs(clonedArgs, message.channelId, message.guildId || '', call.name);
-		callSignature = createCallSignature(call.name, normalizedArgs);
-		logEntry = {
-			name: call.name,
-			args: normalizedArgs,
-			status: 'success',
-			result: null,
-		};
-
-		if (executedCallCache.has(callSignature)) {
-			const previousResult = executedCallCache.get(callSignature);
-			const duplicateMessage = formatDuplicateMessage(call.name, previousResult);
-			functionResults.push({ name: call.name, result: duplicateMessage });
-			allFunctionResults.push({ name: call.name, result: duplicateMessage });
-			if (logEntry) {
-				logEntry.status = 'skipped';
-				logEntry.result = duplicateMessage;
-				executionLog.push(logEntry);
-				logEntry = null;
-			}
-			console.log(duplicateMessage);
-			return;
-		}
-
-		setOperationContext({
-			message,
-			userId: message.author.id,
-			channelId: message.channelId,
-		});
-
-		try {
-			let result = await executeFunctionHandler(call, message, handler, normalizedArgs);
-
-			if (call.name === 'purgeChannel' && typeof result === 'string') {
-				const { newChannelId, cleanedResult } = extractNewChannelId(result);
-				if (newChannelId) {
-					newChannelIdFromPurge = newChannelId;
-					result = cleanedResult;
-				}
-			}
-
-			functionResults.push({ name: call.name, result });
-			allFunctionResults.push({ name: call.name, result });
-			executedCallCache.set(callSignature, result);
-			if (logEntry) {
-				logEntry.result = result;
-				executionLog.push(logEntry);
-				logEntry = null;
-			}
-			console.log(`Function call result for ${call.name}:`, result);
-
-			await new Promise((resolve) => setTimeout(resolve, 500));
-		} finally {
-			clearOperationContext();
-		}
-	} catch (error) {
-		console.error('Call error:', error);
-		if (call.name) {
-			const errorResult = {
-				error: error instanceof Error ? error.message : 'Unknown error',
-			};
-			functionResults.push({ name: call.name, result: errorResult });
-			allFunctionResults.push({ name: call.name, result: errorResult });
-			if (callSignature) {
-				executedCallCache.set(callSignature, errorResult);
-			}
-			if (logEntry) {
-				logEntry.status = 'error';
-				logEntry.result = errorResult;
-				executionLog.push(logEntry);
-				logEntry = null;
-			} else {
-				executionLog.push({
-					name: call.name,
-					args: call.args ?? null,
-					status: 'error',
-					result: errorResult,
-				});
-			}
-		}
-	}
-}
-
-async function processFunctionCalls(
-	response: any,
-	message: Message,
-	conversation: any[],
-	allFunctionResults: Array<{ name: string; result: any }>,
-	executionLog: FunctionExecutionLogEntry[],
-	executedCallCache: Map<string, any>,
-): Promise<{ hasFunctionCalls: boolean; functionResults: Array<{ name: string; result: any }> }> {
-	if (!response.functionCalls?.length) {
-		return { hasFunctionCalls: false, functionResults: [] };
-	}
-
-	const functionResults: Array<{ name: string; result: any }> = [];
-	const functionAttemptCounts = new Map<string, number>();
-
-	for (const call of response.functionCalls) {
-		await processFunctionCall(
-			call,
-			message,
-			functionResults,
-			allFunctionResults,
-			executionLog,
-			executedCallCache,
-			functionAttemptCounts,
-		);
-	}
-
-	for (const funcResult of functionResults) {
-		conversation.push({
-			role: 'user',
-			parts: [{ text: `Function ${funcResult.name} returned: ${JSON.stringify(funcResult.result)}` }],
-		});
-	}
-
-	return { hasFunctionCalls: true, functionResults };
-}
 
 function getChannelName(message: Message): string {
 	return message.channel?.isTextBased() && 'name' in message.channel && message.channel.name
@@ -396,166 +84,10 @@ async function sendResponseMessage(
 		await targetChannel.send(messageOptions);
 	}
 }
-async function generateAIContent(
-	aiClient: GoogleGenAI,
-	modelName: string,
-	config: any,
-	conversation: any[],
-	message: Message,
-	allFunctionResults: Array<{ name: string; result: any }>,
-	executionLog: FunctionExecutionLogEntry[],
-	executedCallCache: Map<string, any>,
-): Promise<{ hasMoreFunctionCalls: boolean; responseText: string }> {
-	const maxRetries = 3;
-	const retryDelay = 2000;
-	let lastError;
-
-	for (let attempt = 1; attempt <= maxRetries; attempt++) {
-		try {
-			const response = await aiClient.models.generateContent({
-				model: modelName,
-				config,
-				contents: conversation,
-			});
-
-			const { hasFunctionCalls: hasCurrentFunctionCalls } = await processFunctionCalls(
-				response,
-				message,
-				conversation,
-				allFunctionResults,
-				executionLog,
-				executedCallCache,
-			);
-
-			return {
-				hasMoreFunctionCalls: hasCurrentFunctionCalls,
-				responseText: hasCurrentFunctionCalls ? '' : extractResponseText(response),
-			};
-		} catch (error) {
-			lastError = error;
-			const statusCode = error && typeof error === 'object' && 'status' in error ? (error as any).status : null;
-
-			const isRetriable = statusCode === 502 || statusCode === 503 || statusCode === 504 || statusCode === 429;
-
-			if (isRetriable && attempt < maxRetries) {
-				console.log(`API call failed with status ${statusCode}. Retrying (attempt ${attempt}/${maxRetries})...`);
-				await new Promise((resolve) => setTimeout(resolve, retryDelay * attempt));
-			} else {
-				throw error;
-			}
-		}
-	}
-
-	throw lastError;
-}
-
-async function generateFallbackResponse(aiClient: GoogleGenAI, latestUserMessage: string): Promise<string> {
-	try {
-		const fallback = await aiClient.models.generateContent({
-			model: 'gemini-flash-lite-latest',
-			contents: [
-				{
-					role: 'user',
-					parts: [
-						{
-							text: `The previous response was empty. Provide a concise, helpful reply (max two sentences) to this request: ${latestUserMessage}`,
-						},
-					],
-				},
-			],
-		});
-
-		const text = fallback.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-		if (text) {
-			return text;
-		}
-	} catch (error) {
-		console.error('Failed to generate fallback response:', error);
-	}
-	return `I received your request: ${latestUserMessage}. I could not retrieve additional context, but I am ready to help if you can clarify or provide more details.`;
-}
-
-async function processAIResponse(
-	aiClient: GoogleGenAI,
-	modelName: string,
-	config: any,
-	conversation: any[],
-	message: Message,
-	latestUserMessage: string,
-): Promise<{
-	responseText: string;
-	allFunctionResults: Array<{ name: string; result: any }>;
-	executionLog: FunctionExecutionLogEntry[];
-}> {
-	let responseText = '';
-	const maxRounds = 5;
-	let round = 0;
-	const allFunctionResults: Array<{ name: string; result: any }> = [];
-	const executedCallCache = new Map<string, any>();
-	const executionLog: FunctionExecutionLogEntry[] = [];
-
-	while (round < maxRounds) {
-		round++;
-
-		const { hasMoreFunctionCalls, responseText: currentResponseText } = await generateAIContent(
-			aiClient,
-			modelName,
-			config,
-			conversation,
-			message,
-			allFunctionResults,
-			executionLog,
-			executedCallCache,
-		);
-
-		if (!hasMoreFunctionCalls) {
-			responseText = currentResponseText;
-			break;
-		}
-	}
-
-	if (round >= maxRounds) {
-		console.warn('Reached maximum function call rounds');
-		try {
-			const maxRoundsResponse = await aiClient.models.generateContent({
-				model: 'gemini-flash-latest',
-				contents: [
-					{
-						role: 'user',
-						parts: [
-							{
-								text: `Generate a unique, friendly message explaining that you performed multiple operations but hit a processing limit. Keep it 1-2 sentences, casual tone, suggest checking logs. Include a relevant emoji. Make it different each time.`,
-							},
-						],
-					},
-				],
-			});
-
-			const generatedMaxRounds = maxRoundsResponse.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-			if (generatedMaxRounds) {
-				responseText = generatedMaxRounds;
-			} else {
-				responseText =
-					'I performed multiple operations but reached the maximum limit. Please check the logs for details.';
-			}
-		} catch (error) {
-			console.error('Failed to generate max rounds message:', error);
-			responseText =
-				'I performed multiple operations but reached the maximum limit. Please check the logs for details.';
-		}
-	}
-
-	if (!responseText.trim()) {
-		responseText = await generateFallbackResponse(aiClient, latestUserMessage);
-	}
-
-	return { responseText, allFunctionResults, executionLog };
-}
 
 async function sendFinalResponse(
 	message: Message,
 	responseText: string,
-	executionLog: FunctionExecutionLogEntry[] = [],
 	reactionAdded: boolean = false,
 ): Promise<void> {
 	let targetChannelOverride = null;
@@ -585,10 +117,6 @@ async function sendFinalResponse(
 	if (!targetChannel) return;
 
 	let responsePayload = responseText.trim();
-	const checklist = formatExecutionSummary(executionLog);
-	if (checklist) {
-		responsePayload = responsePayload ? `${responsePayload}\n\n${checklist}` : checklist;
-	}
 	if (!responsePayload.trim()) {
 		console.log('No response text found, sending debug info');
 		responsePayload = "I received your message but couldn't generate a response. Please check the logs for details.";
@@ -693,18 +221,32 @@ User @${userName} says: ${userMessage}
 		const contextualParts: ConversationPart[] = [{ text: contextualMessage }];
 		const conversation = buildConversationContext(contextualParts, conversationHistory);
 
-		const { responseText, executionLog } = await processAIResponse(
+		const checklistMessageRef = { current: null as Message | null };
+
+		const newChannelIdRef = { current: null as string | null };
+		const { responseText } = await processAIResponse(
 			aiClient,
 			modelName,
 			config,
 			conversation,
 			message,
 			userMessage,
+			checklistMessageRef,
+			newChannelIdRef,
 		);
+		newChannelIdFromPurge = newChannelIdRef.current;
 
 		console.log('Final response text:', responseText);
 
-		await sendFinalResponse(message, responseText, executionLog, reactionAdded);
+		if (checklistMessageRef.current) {
+			try {
+				await checklistMessageRef.current.delete();
+			} catch (error) {
+				console.error('Failed to delete checklist message:', error);
+			}
+		}
+
+		await sendFinalResponse(message, responseText, reactionAdded);
 	} catch (error) {
 		console.error('Error:', error);
 		const { messageExists, channelExists, targetChannel } = await checkMessageAndChannelAccess(message);
@@ -712,16 +254,17 @@ User @${userName} says: ${userMessage}
 		if (targetChannel) {
 			let errorContext = 'general error';
 			let errorDetails = '';
+			let statusCode: number | null = null;
 
 			if (error && typeof error === 'object' && 'status' in error) {
-				const statusCode = (error as any).status;
+				statusCode = (error as any).status;
 				if (statusCode === 502 || statusCode === 503 || statusCode === 504) {
 					errorContext = 'temporary server error';
 					errorDetails = 'AI service connection issue';
 				} else if (statusCode === 429) {
 					errorContext = 'rate limit';
 					errorDetails = 'too many requests';
-				} else if (statusCode >= 500) {
+				} else if (statusCode && statusCode >= 500) {
 					errorContext = 'server error';
 					errorDetails = 'AI service experiencing issues';
 				} else if (statusCode === 401 || statusCode === 403) {
@@ -732,27 +275,39 @@ User @${userName} says: ${userMessage}
 			}
 
 			let errorMessage = 'Sorry, I encountered an error processing your message.';
-			try {
-				const errorResponse = await aiClient.models.generateContent({
-					model: 'gemini-flash-latest',
-					contents: [
-						{
-							role: 'user',
-							parts: [
-								{
-									text: `Generate a unique, friendly error message for: ${errorContext}. Context: ${errorDetails}. Keep it 1-2 sentences, casual tone, include a relevant emoji. Make it different each time.`,
-								},
-							],
-						},
-					],
-				});
 
-				const generatedError = errorResponse.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-				if (generatedError) {
-					errorMessage = generatedError;
+			if (statusCode === 503) {
+				errorMessage =
+					"🔥 The AI service is currently overloaded. I've tried multiple times but couldn't get through. Please try again in a few moments!";
+			} else if (statusCode === 429) {
+				errorMessage = "⏱️ Slow down there! I'm hitting rate limits. Give me a moment and try again.";
+			} else if (statusCode === 502 || statusCode === 504) {
+				errorMessage = '🌐 Connection timeout. The AI service is having a moment. Try again shortly!';
+			} else if (statusCode === 401 || statusCode === 403) {
+				errorMessage = '🔒 Authentication issue detected. This is a configuration problem on my end.';
+			} else {
+				try {
+					const errorResponse = await aiClient.models.generateContent({
+						model: 'gemini-flash-latest',
+						contents: [
+							{
+								role: 'user',
+								parts: [
+									{
+										text: `Generate a unique, friendly error message for: ${errorContext}. Context: ${errorDetails}. Keep it 1-2 sentences, casual tone, include a relevant emoji. Make it different each time.`,
+									},
+								],
+							},
+						],
+					});
+
+					const generatedError = errorResponse.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+					if (generatedError) {
+						errorMessage = generatedError;
+					}
+				} catch (aiError) {
+					console.error('Failed to generate error message with AI:', aiError);
 				}
-			} catch (aiError) {
-				console.error('Failed to generate error message with AI:', aiError);
 			}
 
 			await sendResponseMessage(message, errorMessage, messageExists, channelExists, targetChannel);
