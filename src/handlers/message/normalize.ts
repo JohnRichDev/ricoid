@@ -53,8 +53,8 @@ function validateAndCleanServer(args: any, messageGuildId?: string | null): void
 	}
 
 	const normalized = trimmed.toLowerCase();
-	const aliases = ['current server', 'this server', 'current guild', 'this guild'];
-	if (aliases.includes(normalized)) {
+	const isServerAlias = /^(current|this|here)(\s+(server|guild))?$/i.test(normalized);
+	if (isServerAlias) {
 		if (messageGuildId) {
 			args.server = messageGuildId;
 		} else {
