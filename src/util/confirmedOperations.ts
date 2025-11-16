@@ -158,8 +158,8 @@ export async function moderateUser(args: ModerationData): Promise<string> {
 		return await originalModerateUser(args);
 	}
 
-	const seriousActions = ['ban', 'kick', 'timeout'];
-	if (!seriousActions.includes(args.action)) {
+	const isSeriousAction = /^(ban|kick|timeout|mute|warn)$/i.test(args.action);
+	if (!isSeriousAction) {
 		return await originalModerateUser(args);
 	}
 
@@ -194,8 +194,7 @@ export async function manageUserRole(args: RoleManagementData): Promise<string> 
 		return await originalManageUserRole(args);
 	}
 
-	const dangerousRoles = ['admin', 'administrator', 'moderator', 'mod', 'owner', 'staff'];
-	const isDangerousRole = dangerousRoles.some((role) => args.roleName.toLowerCase().includes(role));
+	const isDangerousRole = /\b(admin|administrator|moderator|mod|owner|staff|manage)\b/i.test(args.roleName);
 
 	if (!isDangerousRole && args.action === 'add') {
 		return await originalManageUserRole(args);
