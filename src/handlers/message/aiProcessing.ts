@@ -7,13 +7,14 @@ import {
 	processFunctionCalls,
 	createCallSignature,
 	DUPLICATE_LOOP_THRESHOLD,
+	shouldShowChecklist,
 } from './functionCalls.js';
 import type { FunctionExecutionLogEntry } from './executionTypes.js';
 import { extractResponseText } from './conversation.js';
 async function generateFallbackResponse(aiClient: GoogleGenAI, latestUserMessage: string): Promise<string> {
 	try {
 		const fallback = await aiClient.models.generateContent({
-			model: 'gemini-flash-lite-latest',
+			model: 'gemini-flash-latest',
 			contents: [
 				{
 					role: 'user',
@@ -104,9 +105,11 @@ async function generateAIContent(
 								});
 						}
 					}
-					const embed = createChecklistEmbed(executionLog);
-					checklistMessageRef.current = await message.reply({ embeds: [embed], allowedMentions: { parse: [] } });
-					await new Promise((r) => setTimeout(r, 300));
+					if (shouldShowChecklist(executionLog)) {
+						const embed = createChecklistEmbed(executionLog);
+						checklistMessageRef.current = await message.reply({ embeds: [embed], allowedMentions: { parse: [] } });
+						await new Promise((r) => setTimeout(r, 300));
+					}
 				} catch {}
 			} else if (response.functionCalls?.length && checklistMessageRef.current) {
 				for (const call of response.functionCalls) {
@@ -201,7 +204,7 @@ export async function processAIResponse(
 	executionLog: FunctionExecutionLogEntry[];
 }> {
 	let responseText = '';
-	const maxRounds = 5;
+	const maxRounds = 10;
 	let round = 0;
 	const allFunctionResults: Array<{ name: string; result: any }> = [];
 	const executedCallCache = new Map<string, any>();
@@ -212,9 +215,27 @@ export async function processAIResponse(
 	try {
 		if (!checklistMessageRef.current) {
 			const availableFns = Object.keys(functionHandlers);
-			const planningPrompt = `Plan the minimal tool sequence you will call for this request using the available tools: ${availableFns.join(', ')}.\nRules: use createEmbed and sendDiscordMessage when the user asks for embeds, rich formatting, or message drafts. Only include executeCode when the user explicitly wants custom code execution, automation, or logic that native functions cannot handle. Avoid duplicates and keep the list short and ordered. Respond with only a JSON array of tool names, e.g., ["search","createEmbed","sendDiscordMessage"]. User request: ${latestUserMessage}`;
+			const planningPrompt = `Analyze this request and list ALL function calls you will need to make, in the exact order you'll execute them.
+
+Available tools: ${availableFns.join(', ')}
+
+Request: "${latestUserMessage}"
+
+Think through the COMPLETE workflow:
+- If creating multiple items (channels, roles, etc.), list each creation separately
+- If setting permissions on multiple channels, list each setChannelPermissions call
+- Include the final message/response function if needed
+- Count all steps: if user asks for 3 channels + 1 role + permissions on 3 channels + 1 message = that's 8+ function calls minimum
+
+Rules:
+- Use createEmbed for rich formatting/embeds
+- Use sendDiscordMessage for final messages
+- Avoid executeCode unless user explicitly wants custom code
+- List EVERY function call, don't summarize
+
+Respond with ONLY a JSON array of function names in execution order, e.g., ["createCategory","createChannel","createChannel","createChannel","createRole","setChannelPermissions","setChannelPermissions","setChannelPermissions","sendDiscordMessage"]`;
 			const planResp = await aiClient.models.generateContent({
-				model: 'gemini-flash-lite-latest',
+				model: 'gemini-flash-latest',
 				contents: [{ role: 'user', parts: [{ text: planningPrompt }] }],
 			});
 			const planText = planResp.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '[]';
@@ -255,7 +276,7 @@ export async function processAIResponse(
 					plannedOrder: executionLog.length,
 				});
 			}
-			if (executionLog.length) {
+			if (shouldShowChecklist(executionLog)) {
 				const embed = createChecklistEmbed(executionLog);
 				checklistMessageRef.current = await message.reply({ embeds: [embed], allowedMentions: { parse: [] } });
 				await new Promise((r) => setTimeout(r, 300));
@@ -285,29 +306,38 @@ export async function processAIResponse(
 		}
 	}
 	if (round >= maxRounds) {
-		try {
-			const maxRoundsResponse = await aiClient.models.generateContent({
-				model: 'gemini-flash-latest',
-				contents: [
-					{
-						role: 'user',
-						parts: [
-							{
-								text: 'Generate a unique, friendly message explaining that you performed multiple operations but hit a processing limit. Keep it 1-2 sentences, casual tone, suggest checking logs. Include a relevant emoji. Make it different each time.',
-							},
-						],
-					},
-				],
+		const completedActions = executionLog
+			.filter((e) => e.status === 'success')
+			.map((e) => {
+				const resultPreview =
+					typeof e.result === 'string'
+						? e.result.length > 100
+							? `${e.result.slice(0, 100)}...`
+							: e.result
+						: JSON.stringify(e.result).slice(0, 100);
+				return `✅ **${e.name}**: ${resultPreview}`;
 			});
-			const generatedMaxRounds = maxRoundsResponse.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-			if (generatedMaxRounds) responseText = generatedMaxRounds;
-			else
-				responseText =
-					'I performed multiple operations but reached the maximum limit. Please check the logs for details.';
-		} catch {
-			responseText =
-				'I performed multiple operations but reached the maximum limit. Please check the logs for details.';
+		const failedActions = executionLog
+			.filter((e) => e.status === 'error')
+			.map((e) => {
+				const errorMsg =
+					typeof e.result === 'object' && e.result?.error ? e.result.error : String(e.result || 'Unknown error');
+				return `❌ **${e.name}**: ${errorMsg}`;
+			});
+		const skippedActions = executionLog.filter((e) => e.status === 'skipped' || e.status === 'pending').length;
+		const summary: string[] = [
+			`⚠️ Hit processing limit (${maxRounds} rounds). Here's what completed:`,
+			'',
+			'**Completed:**',
+			...completedActions,
+		];
+		if (failedActions.length > 0) {
+			summary.push('', '**Failed:**', ...failedActions);
 		}
+		if (skippedActions > 0) {
+			summary.push('', `**Skipped:** ${skippedActions} operation(s) not completed`);
+		}
+		responseText = summary.join('\n');
 	}
 	const finalizedPending = finalizePendingEntries(executionLog, sequenceCounterRef);
 	if (finalizedPending && checklistMessageRef.current) {
