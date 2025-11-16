@@ -10,6 +10,14 @@ export const SINGLE_EXECUTION_FUNCTIONS = new Set<string>([
 	'sendDiscordMessage',
 	'executeCode',
 ]);
+function isDestructiveOperation(entry: FunctionExecutionLogEntry): boolean {
+	const destructivePatterns = /^(delete|remove|clear|purge|ban|kick|timeout|moderate)/i;
+	if (destructivePatterns.test(entry.name)) return true;
+	if (entry.name === 'executeCode' && entry.args?.risky === true) return true;
+	const creationPatterns = /^(create|add|set|update|edit|modify|rename|move)(?!Embed)/i;
+	if (creationPatterns.test(entry.name)) return true;
+	return false;
+}
 export const DUPLICATE_LOOP_THRESHOLD = 2;
 const FUNCTION_LOG_PREFIX = '[FunctionAction]';
 function serializeForLog(value: any): string {
@@ -65,6 +73,10 @@ export function extractNewChannelId(result: string): { newChannelId: string | nu
 	if (newChannelMatch)
 		return { newChannelId: newChannelMatch[1], cleanedResult: result.replace(/\s*NEW_CHANNEL_ID:\d+/, '') };
 	return { newChannelId: null, cleanedResult: result };
+}
+export function shouldShowChecklist(executionLog: FunctionExecutionLogEntry[]): boolean {
+	if (executionLog.length === 0) return false;
+	return executionLog.some((entry) => isDestructiveOperation(entry));
 }
 function pushLogEntry(
 	executionLog: FunctionExecutionLogEntry[],
@@ -342,12 +354,12 @@ export async function processFunctionCalls(
 				{
 					text: (() => {
 						if (typeof funcResult.result === 'string')
-							return `Function ${funcResult.name} returned:\n${funcResult.result}`;
+							return `FUNCTION RESULT FOR ${funcResult.name.toUpperCase()}:\n${funcResult.result}\n\nIMPORTANT: Use this data in your response. Do NOT say you don't have access to this information.`;
 						try {
 							const pretty = JSON.stringify(funcResult.result, null, 2);
-							return `Function ${funcResult.name} returned:\n${pretty}`;
+							return `FUNCTION RESULT FOR ${funcResult.name.toUpperCase()}:\n${pretty}\n\nIMPORTANT: Use this data in your response. Do NOT say you don't have access to this information.`;
 						} catch {
-							return `Function ${funcResult.name} returned: ${String(funcResult.result)}`;
+							return `FUNCTION RESULT FOR ${funcResult.name.toUpperCase()}: ${String(funcResult.result)}\n\nIMPORTANT: Use this data in your response. Do NOT say you don't have access to this information.`;
 						}
 					})(),
 				},
