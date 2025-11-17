@@ -14,13 +14,15 @@ An AI-powered Discord bot with administrative permissions. Communicate using nat
 
 ## Features
 
-- **Natural Language Interface**: Communicate naturally—no complex commands
-- **AI-Powered**: Advanced AI for understanding and executing requests
-- **Server Management**: Channels, roles, users, moderation, and permissions
-- **Communication Tools**: Message management, polls, pins, and reactions
-- **Utilities**: Reminders, calculator, games, and conversation tracking
-- **Configurable**: Access control, channel restrictions, custom prompts, and safety confirmations
-- **Modern Stack**: TypeScript, Discord.js v14, modular architecture
+- **Natural Language Interface**: Communicate naturally via mentions or DMs
+- **AI Function Calling**: Google Gemini AI with 60+ Discord operations as callable functions
+- **Server Management**: Channels, categories, roles, permissions, voice controls, and bulk operations
+- **Message Operations**: Send, edit, delete, clear, purge, embeds, polls, pins, reactions, and threads
+- **Moderation**: Kick, ban, timeout, role management, audit logs, and user info
+- **Advanced Features**: Forum channels, webhooks, invites, events, custom commands, and event logging
+- **Utilities**: Code execution (VM sandbox), web scraping, search, reminders, games, and calculator
+- **Configurable**: Access control, channel restrictions, custom AI prompts, and confirmation system
+- **Modern Stack**: TypeScript, Discord.js v14, Gemini AI, modular file-based event system
 
 ## Prerequisites
 
@@ -71,14 +73,15 @@ Start the bot:
 npm start
 ```
 
-**Interact naturally**: Mention the bot or DM it with requests like "create a moderator role" or "clean up spam in this channel."
+**Interact naturally**: Mention the bot (`@Ricoid`) or DM it with requests like "create a moderator role" or "organize these channels into categories."
 
 **Configure settings** with `/settings`:
 
-- `access` - Control who can use the bot
-- `channel` - Restrict bot to specific channels
-- `prompt` - Customize bot personality
-- `confirmations` - Manage safety prompts
+- `access` - Control who can use the bot (users, roles, or everyone)
+- `channel` - Restrict bot responses to specific channels
+- `prompt` - Customize AI personality and behavior
+- `confirmations` - Toggle safety confirmations for dangerous operations
+- `custom-command` - Create/delete custom text commands
 
 ## Development
 
@@ -91,10 +94,14 @@ npm start
 
 **Key directories:**
 
-- `src/commands/` - Command handlers
-- `src/events/` - Event handlers
-- `src/ai/` - AI tools and function declarations
-- `src/util/` - Utilities and helpers
+- `src/commands/` - Slash command handlers (`/settings`)
+- `src/events/` - Discord event handlers (messageCreate, guildCreate, etc.)
+- `src/ai/` - AI config, function declarations, search integration
+- `src/handlers/` - Message processing, AI response generation, function call routing
+- `src/discord/operations/` - Discord API operations organized by domain
+- `src/util/` - Confirmation system, settings store, loaders, helpers
+- `data/` - Runtime data (settings.json, conversations.json)
+- `logs/events/` - Daily event logs (all Discord events in JSON format)
 
 ## Contributing
 
