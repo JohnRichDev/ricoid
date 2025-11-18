@@ -47,6 +47,248 @@ import type {
 
 const loggingConfig: Map<string, any> = new Map();
 
+function clampString(input: string, limit: number): string {
+	return input.length > limit ? `${input.slice(0, limit - 3)}...` : input;
+}
+
+function setString(value: unknown): string | null {
+	if (typeof value === 'string') {
+		const trimmed = value.trim();
+		return trimmed.length ? trimmed : null;
+	}
+	if (value === undefined || value === null) {
+		return null;
+	}
+	const stringValue = String(value).trim();
+	return stringValue.length ? stringValue : null;
+}
+
+function splitFromSeparators(text: string): { name: string; value: string } | null {
+	const separators = ['\n\n', '\r\n\r\n', '\r\n', '\n', ' — ', ' – ', ' - ', ': ', ' | ', ' • ', ' ~ ', ' → ', ' => '];
+	for (const separator of separators) {
+		const index = text.indexOf(separator);
+		if (index > 0) {
+			const name = text.slice(0, index).trim();
+			const value = text.slice(index + separator.length).trim();
+			if (name) return { name, value };
+		}
+	}
+	return null;
+}
+
+function deriveFieldPartsFromString(raw: string, index: number): { name: string; value: string } {
+	const ZERO_WIDTH_SPACE = '\u200b';
+	const condensed = raw.replace(/\s+/g, ' ').trim();
+	if (!condensed) return { name: `Entry ${index + 1}`, value: ZERO_WIDTH_SPACE };
+
+	let name = '';
+	let value = '';
+
+	const separatorResult = splitFromSeparators(raw);
+	if (separatorResult) {
+		name = separatorResult.name;
+		value = separatorResult.value;
+	}
+
+	if (!name) {
+		const sentenceMatch = condensed.match(/^(.{20,140}?[.!?])\s+(.*)$/s);
+		if (sentenceMatch) {
+			name = sentenceMatch[1].trim();
+			value = sentenceMatch[2].trim();
+		}
+	}
+
+	if (!name) {
+		name = condensed.length <= 80 ? condensed : condensed.slice(0, 80).trim();
+		value = condensed.length > 80 ? condensed.slice(name.length).trim() : '';
+	}
+
+	if (!value) value = condensed !== name ? condensed : ZERO_WIDTH_SPACE;
+	return { name, value };
+}
+
+function parseInlineValue(inlineRaw: any): boolean | undefined {
+	if (typeof inlineRaw === 'boolean') return inlineRaw;
+	if (typeof inlineRaw === 'string') {
+		const lowered = inlineRaw.trim().toLowerCase();
+		if (lowered === 'true') return true;
+		if (lowered === 'false') return false;
+	}
+	return undefined;
+}
+
+function normalizeObjectField(field: any): { name: string; value: string; inline?: boolean } | null {
+	const nameValue = setString((field as any).name);
+	const valueValue = setString((field as any).value);
+	if (!nameValue || !valueValue) return null;
+
+	const inlineValue = parseInlineValue((field as any).inline);
+	const result: { name: string; value: string; inline?: boolean } = {
+		name: clampString(nameValue, 256),
+		value: clampString(valueValue, 1024),
+	};
+	if (typeof inlineValue === 'boolean') {
+		result.inline = inlineValue;
+	}
+	return result;
+}
+
+function normalizeStringField(field: string, index: number): { name: string; value: string } | null {
+	const ZERO_WIDTH_SPACE = '\u200b';
+	const trimmed = field.trim();
+	if (!trimmed) return null;
+
+	const { name, value } = deriveFieldPartsFromString(trimmed, index);
+	return {
+		name: clampString(name, 256),
+		value: clampString(value || ZERO_WIDTH_SPACE, 1024),
+	};
+}
+
+function normalizeFields(rawFields: unknown): Array<{ name: string; value: string; inline?: boolean }> {
+	if (!Array.isArray(rawFields)) return [];
+
+	const normalized: Array<{ name: string; value: string; inline?: boolean }> = [];
+	rawFields.forEach((field, index) => {
+		if (field && typeof field === 'object' && !Array.isArray(field)) {
+			const result = normalizeObjectField(field);
+			if (result) normalized.push(result);
+		} else if (typeof field === 'string') {
+			const result = normalizeStringField(field, index);
+			if (result) normalized.push(result);
+		}
+	});
+	return normalized;
+}
+
+function extractFieldsFromDescription(description: string): {
+	cleaned: string | null;
+	fields: Array<{ name: string; value: string; inline?: boolean }>;
+} {
+	let working = description;
+	const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
+
+	working = working.replace(/"inline"\s+(true|false)/gi, '"inline": $1');
+	const candidates = working.match(/\{[\s\S]*?\}/g) || [];
+
+	for (const raw of candidates) {
+		try {
+			const parsed = JSON.parse(raw);
+			const n = setString((parsed as any).name);
+			const v = setString((parsed as any).value);
+			const inl = parseInlineValue((parsed as any).inline);
+
+			if (n && v) {
+				fields.push({
+					name: clampString(n, 256),
+					value: clampString(v, 1024),
+					...(typeof inl === 'boolean' ? { inline: inl } : {}),
+				});
+				working = working.replace(raw, '').trim();
+			}
+		} catch {}
+	}
+
+	const cleaned = working.trim();
+	return {
+		cleaned: cleaned.length > 0 ? cleaned : null,
+		fields,
+	};
+}
+
+function buildEmbedFooter(footer: any): any | null {
+	const footerText = setString((footer as any).text);
+	if (!footerText) return null;
+
+	const normalizedFooter: any = { text: clampString(footerText, 2048) };
+	const footerIcon = setString((footer as any).iconUrl);
+	if (footerIcon) normalizedFooter.icon_url = footerIcon;
+	return normalizedFooter;
+}
+
+function buildEmbedAuthor(author: any): any | null {
+	const authorName = setString((author as any).name);
+	if (!authorName) return null;
+
+	const normalizedAuthor: any = { name: clampString(authorName, 256) };
+	const authorIcon = setString((author as any).iconUrl);
+	const authorUrl = setString((author as any).url);
+	if (authorIcon) normalizedAuthor.icon_url = authorIcon;
+	if (authorUrl) normalizedAuthor.url = authorUrl;
+	return normalizedAuthor;
+}
+
+function buildEmbed(params: {
+	title?: string;
+	description?: string;
+	color?: string;
+	fields?: Array<{ name: string; value: string; inline?: boolean }>;
+	footer?: { text: string; iconUrl?: string };
+	image?: string;
+	thumbnail?: string;
+	author?: { name: string; iconUrl?: string; url?: string };
+	timestamp?: boolean;
+	url?: string;
+}): any {
+	const embed: any = {};
+
+	const normalizedTitle = setString(params.title);
+	if (normalizedTitle) embed.title = clampString(normalizedTitle, 256);
+
+	let normalizedDescription = setString(params.description);
+	let extractedFieldsFromDescription: Array<{ name: string; value: string; inline?: boolean }> = [];
+
+	if (normalizedDescription) {
+		const { cleaned, fields } = extractFieldsFromDescription(normalizedDescription);
+		normalizedDescription = cleaned;
+		extractedFieldsFromDescription = fields;
+	}
+
+	if (normalizedDescription) {
+		embed.description = clampString(normalizedDescription, 4096);
+	}
+
+	if (params.color) {
+		const parsedColor = parseHexColor(params.color);
+		if (parsedColor !== null) embed.color = parsedColor;
+	}
+
+	const normalizedFields = normalizeFields(params.fields);
+	if (extractedFieldsFromDescription.length > 0) {
+		normalizedFields.push(...extractedFieldsFromDescription);
+	}
+	if (normalizedFields.length > 0) embed.fields = normalizedFields;
+
+	if (params.footer && typeof params.footer === 'object') {
+		const footerObj = buildEmbedFooter(params.footer);
+		if (footerObj) embed.footer = footerObj;
+	}
+
+	if (params.image) {
+		const imageUrl = setString(params.image);
+		if (imageUrl) embed.image = { url: imageUrl };
+	}
+
+	if (params.thumbnail) {
+		const thumbnailUrl = setString(params.thumbnail);
+		if (thumbnailUrl) embed.thumbnail = { url: thumbnailUrl };
+	}
+
+	if (params.author && typeof params.author === 'object') {
+		const authorObj = buildEmbedAuthor(params.author);
+		if (authorObj) embed.author = authorObj;
+	}
+
+	if (params.timestamp) embed.timestamp = new Date().toISOString();
+
+	if (params.url) {
+		const normalizedUrl = setString(params.url);
+		if (normalizedUrl) embed.url = normalizedUrl;
+	}
+
+	return embed;
+}
+
 export async function sendDiscordMessage({ server, channel, message }: MessageData): Promise<string> {
 	const textChannel = await findTextChannel(channel, server);
 	const sentMessage = await textChannel.send({
@@ -85,190 +327,18 @@ export async function createEmbed({
 }): Promise<string> {
 	const textChannel = await findTextChannel(channel, server);
 
-	const clamp = (input: string, limit: number) => (input.length > limit ? `${input.slice(0, limit - 3)}...` : input);
-	const embed: any = {};
-	const setString = (value: unknown) => {
-		if (typeof value === 'string') {
-			const trimmed = value.trim();
-			return trimmed.length ? trimmed : null;
-		}
-		if (value === undefined || value === null) {
-			return null;
-		}
-		const stringValue = String(value).trim();
-		return stringValue.length ? stringValue : null;
-	};
-	const ZERO_WIDTH_SPACE = '\u200b';
-	const splitFromSeparators = (text: string) => {
-		const separators = [
-			'\n\n',
-			'\r\n\r\n',
-			'\r\n',
-			'\n',
-			' — ',
-			' – ',
-			' - ',
-			': ',
-			' | ',
-			' • ',
-			' ~ ',
-			' → ',
-			' => ',
-		];
-		for (const separator of separators) {
-			const index = text.indexOf(separator);
-			if (index > 0) {
-				const name = text.slice(0, index).trim();
-				const value = text.slice(index + separator.length).trim();
-				if (name) return { name, value };
-			}
-		}
-		return null;
-	};
-	const deriveFieldPartsFromString = (raw: string, index: number) => {
-		const condensed = raw.replace(/\s+/g, ' ').trim();
-		if (!condensed) return { name: `Entry ${index + 1}`, value: ZERO_WIDTH_SPACE };
-		let name = '';
-		let value = '';
-		const separatorResult = splitFromSeparators(raw);
-		if (separatorResult) {
-			name = separatorResult.name;
-			value = separatorResult.value;
-		}
-		if (!name) {
-			const sentenceMatch = condensed.match(/^(.{20,140}?[.!?])\s+(.*)$/s);
-			if (sentenceMatch) {
-				name = sentenceMatch[1].trim();
-				value = sentenceMatch[2].trim();
-			}
-		}
-		if (!name) {
-			name = condensed.length <= 80 ? condensed : condensed.slice(0, 80).trim();
-			value = condensed.length > 80 ? condensed.slice(name.length).trim() : '';
-		}
-		if (!value) value = condensed !== name ? condensed : ZERO_WIDTH_SPACE;
-		return { name, value };
-	};
-	const normalizeFields = (rawFields: unknown) => {
-		if (!Array.isArray(rawFields)) {
-			return [];
-		}
-		const normalized: Array<{ name: string; value: string; inline?: boolean }> = [];
-		rawFields.forEach((field, index) => {
-			if (field && typeof field === 'object' && !Array.isArray(field)) {
-				const nameValue = setString((field as any).name);
-				const valueValue = setString((field as any).value);
-				if (!nameValue || !valueValue) {
-					return;
-				}
-				const inlineRaw = (field as any).inline;
-				let inlineValue: boolean | undefined;
-				if (typeof inlineRaw === 'boolean') {
-					inlineValue = inlineRaw;
-				} else if (typeof inlineRaw === 'string') {
-					const lowered = inlineRaw.trim().toLowerCase();
-					if (lowered === 'true') inlineValue = true;
-					if (lowered === 'false') inlineValue = false;
-				}
-				const result: { name: string; value: string; inline?: boolean } = {
-					name: clamp(nameValue, 256),
-					value: clamp(valueValue, 1024),
-				};
-				if (typeof inlineValue === 'boolean') {
-					result.inline = inlineValue;
-				}
-				normalized.push(result);
-				return;
-			}
-			if (typeof field === 'string') {
-				const trimmed = field.trim();
-				if (!trimmed) {
-					return;
-				}
-				const { name, value } = deriveFieldPartsFromString(trimmed, index);
-				normalized.push({ name: clamp(name, 256), value: clamp(value || ZERO_WIDTH_SPACE, 1024) });
-			}
-		});
-		return normalized;
-	};
-
-	const normalizedTitle = setString(title);
-	if (normalizedTitle) embed.title = clamp(normalizedTitle, 256);
-
-	let normalizedDescription = setString(description);
-	let extractedFieldsFromDescription: Array<{ name: string; value: string; inline?: boolean }> = [];
-	if (normalizedDescription) {
-		let working = normalizedDescription;
-		working = working.replace(/"inline"\s+(true|false)/gi, '"inline": $1');
-		const candidates = working.match(/\{[\s\S]*?\}/g) || [];
-		for (const raw of candidates) {
-			try {
-				const parsed = JSON.parse(raw);
-				const n = setString((parsed as any).name);
-				const v = setString((parsed as any).value);
-				let inl: boolean | undefined = undefined;
-				if (typeof (parsed as any).inline === 'boolean') inl = (parsed as any).inline;
-				else if (typeof (parsed as any).inline === 'string') {
-					const lw = ((parsed as any).inline as string).trim().toLowerCase();
-					if (lw === 'true') inl = true;
-					if (lw === 'false') inl = false;
-				}
-				if (n && v) {
-					extractedFieldsFromDescription.push({
-						name: clamp(n, 256),
-						value: clamp(v, 1024),
-						...(typeof inl === 'boolean' ? { inline: inl } : {}),
-					});
-					working = working.replace(raw, '').trim();
-				}
-			} catch {}
-		}
-		normalizedDescription = working.trim();
-		if (!normalizedDescription || normalizedDescription.length === 0) normalizedDescription = null as any;
-	}
-	if (normalizedDescription && normalizedDescription.length > 0) embed.description = clamp(normalizedDescription, 4096);
-	if (color) {
-		const parsedColor = parseHexColor(color);
-		if (parsedColor !== null) {
-			embed.color = parsedColor;
-		}
-	}
-	const normalizedFields = normalizeFields(fields);
-	if (extractedFieldsFromDescription.length > 0) normalizedFields.push(...extractedFieldsFromDescription);
-	if (normalizedFields.length > 0) embed.fields = normalizedFields;
-	if (footer && typeof footer === 'object') {
-		const footerText = setString((footer as any).text);
-		if (footerText) {
-			const normalizedFooter: any = { text: clamp(footerText, 2048) };
-			const footerIcon = setString((footer as any).iconUrl);
-			if (footerIcon) normalizedFooter.icon_url = footerIcon;
-			embed.footer = normalizedFooter;
-		}
-	}
-	if (image) {
-		const imageUrl = setString(image);
-		if (imageUrl) embed.image = { url: imageUrl };
-	}
-	if (thumbnail) {
-		const thumbnailUrl = setString(thumbnail);
-		if (thumbnailUrl) embed.thumbnail = { url: thumbnailUrl };
-	}
-	if (author && typeof author === 'object') {
-		const authorName = setString((author as any).name);
-		if (authorName) {
-			const normalizedAuthor: any = { name: clamp(authorName, 256) };
-			const authorIcon = setString((author as any).iconUrl);
-			const authorUrl = setString((author as any).url);
-			if (authorIcon) normalizedAuthor.icon_url = authorIcon;
-			if (authorUrl) normalizedAuthor.url = authorUrl;
-			embed.author = normalizedAuthor;
-		}
-	}
-	if (timestamp) embed.timestamp = new Date().toISOString();
-	if (url) {
-		const normalizedUrl = setString(url);
-		if (normalizedUrl) embed.url = normalizedUrl;
-	}
+	const embed = buildEmbed({
+		title,
+		description,
+		color,
+		fields,
+		footer,
+		image,
+		thumbnail,
+		author,
+		timestamp,
+		url,
+	});
 
 	if (Object.keys(embed).length === 0) {
 		throw new Error('Embed payload is empty. Specify at least one field such as title or description.');
@@ -340,8 +410,11 @@ export async function deleteChannel({ server, channelName, channelType }: Delete
 			return `Channel "${channelName}" not found in ${guild.name}.`;
 		}
 
+		const displayType = getChannelTypeDisplayName(channel.type);
+		const capitalizedType = displayType.charAt(0).toUpperCase() + displayType.slice(1);
+
 		await channel.delete();
-		return `Channel "${channel.name}" deleted from ${guild.name}.`;
+		return `${capitalizedType} "${channel.name}" deleted from ${guild.name}.`;
 	} catch (error) {
 		throw new Error(`Failed to delete channel: ${error}`);
 	}
