@@ -46,6 +46,124 @@ function finalizePendingEntries(
 	}
 	return changed;
 }
+
+function normalizeCallArguments(call: any, message: any): any {
+	const callArgs =
+		typeof call.args === 'object' && call.args !== null && !Array.isArray(call.args) ? { ...call.args } : call.args;
+	return normalizeChannelArgs(callArgs, message.channelId, message.guildId || '', call.name);
+}
+
+function shouldAddNewCall(call: any, executionLog: FunctionExecutionLogEntry[]): boolean {
+	if (SINGLE_EXECUTION_FUNCTIONS.has(call.name)) {
+		return !executionLog.some((e) => e.name === call.name);
+	}
+	return true;
+}
+
+function updatePlannedCall(executionLog: FunctionExecutionLogEntry[], callName: string, normalizedArgs: any): boolean {
+	const plannedIndex = executionLog.findIndex(
+		(e) => e.name === callName && e.status === 'pending' && e.args && e.args.__planned === true,
+	);
+	if (plannedIndex !== -1) {
+		executionLog[plannedIndex].args = normalizedArgs;
+		return true;
+	}
+	return false;
+}
+
+function addNewCallToLog(executionLog: FunctionExecutionLogEntry[], callName: string, normalizedArgs: any): void {
+	executionLog.push({
+		name: callName,
+		args: normalizedArgs,
+		status: 'pending',
+		result: null,
+		plannedOrder: executionLog.length,
+	});
+}
+
+async function updateChecklistMessage(checklistMessage: any, executionLog: FunctionExecutionLogEntry[]): Promise<void> {
+	try {
+		const embed = createChecklistEmbed(executionLog);
+		await checklistMessage.edit({ embeds: [embed] });
+		await new Promise((r) => setTimeout(r, 300));
+	} catch {}
+}
+
+async function processInitialFunctionCalls(
+	response: any,
+	message: any,
+	executionLog: FunctionExecutionLogEntry[],
+	checklistMessageRef: { current: any },
+): Promise<void> {
+	if (!response.functionCalls?.length) return;
+
+	for (const call of response.functionCalls) {
+		if (!call.name) continue;
+
+		const normalizedArgs = normalizeCallArguments(call, message);
+		let shouldAdd = shouldAddNewCall(call, executionLog);
+
+		if (shouldAdd && updatePlannedCall(executionLog, call.name, normalizedArgs)) {
+			shouldAdd = false;
+		}
+
+		if (shouldAdd) {
+			addNewCallToLog(executionLog, call.name, normalizedArgs);
+		}
+	}
+
+	if (shouldShowChecklist(executionLog)) {
+		const embed = createChecklistEmbed(executionLog);
+		checklistMessageRef.current = await message.reply({ embeds: [embed], allowedMentions: { parse: [] } });
+		await new Promise((r) => setTimeout(r, 300));
+	}
+}
+
+async function processSubsequentFunctionCalls(
+	response: any,
+	message: any,
+	executionLog: FunctionExecutionLogEntry[],
+	checklistMessage: any,
+): Promise<void> {
+	if (!response.functionCalls?.length) return;
+
+	for (const call of response.functionCalls) {
+		if (!call.name) continue;
+
+		const normalizedArgs = normalizeCallArguments(call, message);
+		const callSig = createCallSignature(call.name, normalizedArgs);
+
+		let existingIndex = executionLog.findIndex((e) => {
+			if (e.name !== call.name) return false;
+			return createCallSignature(e.name, e.args) === callSig;
+		});
+
+		if (existingIndex === -1 && SINGLE_EXECUTION_FUNCTIONS.has(call.name)) {
+			existingIndex = executionLog.findIndex((e) => e.name === call.name);
+		}
+
+		if (existingIndex === -1 && updatePlannedCall(executionLog, call.name, normalizedArgs)) {
+			continue;
+		}
+
+		if (existingIndex === -1) {
+			addNewCallToLog(executionLog, call.name, normalizedArgs);
+		}
+	}
+
+	await updateChecklistMessage(checklistMessage, executionLog);
+}
+
+function isRetriableError(error: any): { isRetriable: boolean; statusCode: number | null } {
+	const statusCode = error && typeof error === 'object' && 'status' in error ? (error as any).status : null;
+	const isRetriable = statusCode === 502 || statusCode === 503 || statusCode === 504 || statusCode === 429;
+	return { isRetriable, statusCode };
+}
+
+async function retryWithBackoff(attempt: number, baseDelay: number): Promise<void> {
+	const delayMs = baseDelay * Math.pow(2, attempt - 1);
+	await new Promise((r) => setTimeout(r, delayMs));
+}
 async function generateAIContent(
 	aiClient: GoogleGenAI,
 	modelName: string,
@@ -64,99 +182,17 @@ async function generateAIContent(
 	const maxRetries = 5;
 	const baseRetryDelay = 3000;
 	let lastError;
+
 	for (let attempt = 1; attempt <= maxRetries; attempt++) {
 		try {
 			const response = await aiClient.models.generateContent({ model: modelName, config, contents: conversation });
-			if (response.functionCalls?.length && !checklistMessageRef.current) {
-				try {
-					for (const call of response.functionCalls) {
-						if (call.name) {
-							const callArgs =
-								typeof call.args === 'object' && call.args !== null && !Array.isArray(call.args)
-									? { ...call.args }
-									: call.args;
-							const normalizedCallArgs = normalizeChannelArgs(
-								callArgs,
-								message.channelId,
-								message.guildId || '',
-								call.name,
-							);
-							let shouldAdd = true;
-							if (SINGLE_EXECUTION_FUNCTIONS.has(call.name)) {
-								const existsByName = executionLog.some((e) => e.name === call.name);
-								if (existsByName) shouldAdd = false;
-							}
-							if (shouldAdd) {
-								const plannedIndex = executionLog.findIndex(
-									(e) => e.name === call.name && e.status === 'pending' && e.args && e.args.__planned === true,
-								);
-								if (plannedIndex !== -1) {
-									executionLog[plannedIndex].args = normalizedCallArgs;
-									shouldAdd = false;
-								}
-							}
-							if (shouldAdd)
-								executionLog.push({
-									name: call.name,
-									args: normalizedCallArgs,
-									status: 'pending',
-									result: null,
-									plannedOrder: executionLog.length,
-								});
-						}
-					}
-					if (shouldShowChecklist(executionLog)) {
-						const embed = createChecklistEmbed(executionLog);
-						checklistMessageRef.current = await message.reply({ embeds: [embed], allowedMentions: { parse: [] } });
-						await new Promise((r) => setTimeout(r, 300));
-					}
-				} catch {}
-			} else if (response.functionCalls?.length && checklistMessageRef.current) {
-				for (const call of response.functionCalls) {
-					if (call.name) {
-						const callArgs =
-							typeof call.args === 'object' && call.args !== null && !Array.isArray(call.args)
-								? { ...call.args }
-								: call.args;
-						const normalizedCallArgs = normalizeChannelArgs(
-							callArgs,
-							message.channelId,
-							message.guildId || '',
-							call.name,
-						);
-						const callSig = createCallSignature(call.name, normalizedCallArgs);
-						let existingIndex = executionLog.findIndex((e) => {
-							if (e.name !== call.name) return false;
-							const entrySig = createCallSignature(e.name, e.args);
-							return entrySig === callSig;
-						});
-						if (existingIndex === -1 && SINGLE_EXECUTION_FUNCTIONS.has(call.name))
-							existingIndex = executionLog.findIndex((e) => e.name === call.name);
-						if (existingIndex === -1) {
-							const plannedIndex = executionLog.findIndex(
-								(e) => e.name === call.name && e.status === 'pending' && e.args && e.args.__planned === true,
-							);
-							if (plannedIndex !== -1) {
-								executionLog[plannedIndex].args = normalizedCallArgs;
-								existingIndex = plannedIndex;
-							}
-						}
-						if (existingIndex === -1)
-							executionLog.push({
-								name: call.name,
-								args: normalizedCallArgs,
-								status: 'pending',
-								result: null,
-								plannedOrder: executionLog.length,
-							});
-					}
-				}
-				try {
-					const embed = createChecklistEmbed(executionLog);
-					await checklistMessageRef.current.edit({ embeds: [embed] });
-					await new Promise((r) => setTimeout(r, 300));
-				} catch {}
+
+			if (!checklistMessageRef.current) {
+				await processInitialFunctionCalls(response, message, executionLog, checklistMessageRef);
+			} else {
+				await processSubsequentFunctionCalls(response, message, executionLog, checklistMessageRef.current);
 			}
+
 			const { hasFunctionCalls: hasCurrentFunctionCalls } = await processFunctionCalls(
 				response,
 				message,
@@ -170,6 +206,7 @@ async function generateAIContent(
 				loopGuardRef,
 				sequenceCounterRef,
 			);
+
 			const loopGuardTriggered = loopGuardRef.current >= DUPLICATE_LOOP_THRESHOLD;
 			return {
 				hasMoreFunctionCalls: loopGuardTriggered ? false : hasCurrentFunctionCalls,
@@ -177,16 +214,16 @@ async function generateAIContent(
 			};
 		} catch (error: any) {
 			lastError = error;
-			const statusCode = error && typeof error === 'object' && 'status' in error ? (error as any).status : null;
-			const isRetriable = statusCode === 502 || statusCode === 503 || statusCode === 504 || statusCode === 429;
+			const { isRetriable } = isRetriableError(error);
+
 			if (isRetriable && attempt < maxRetries) {
-				const delayMs = baseRetryDelay * Math.pow(2, attempt - 1);
-				await new Promise((r) => setTimeout(r, delayMs));
+				await retryWithBackoff(attempt, baseRetryDelay);
 			} else {
 				throw error;
 			}
 		}
 	}
+
 	throw lastError;
 }
 export async function processAIResponse(
