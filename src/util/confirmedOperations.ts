@@ -79,19 +79,21 @@ export async function deleteChannel(args: DeleteChannelData): Promise<string> {
 		return await originalDeleteChannel(args);
 	}
 
+	const itemType = args.channelType === 'category' ? 'category' : 'channel';
+
 	const confirmation = await ConfirmationTemplates.delete(
 		currentContext.channelId,
 		currentContext.userId,
 		args.channelName,
-		'channel',
+		itemType,
 		'This action cannot be undone.',
 	);
 
 	if (!confirmation.confirmed) {
 		if (confirmation.timedOut) {
-			return `Channel deletion timed out - **${args.channelName}** was not deleted.`;
+			return `${itemType.charAt(0).toUpperCase() + itemType.slice(1)} deletion timed out - **${args.channelName}** was not deleted.`;
 		}
-		return `Channel deletion cancelled - **${args.channelName}** was not deleted.`;
+		return `${itemType.charAt(0).toUpperCase() + itemType.slice(1)} deletion cancelled - **${args.channelName}** was not deleted.`;
 	}
 
 	return await originalDeleteChannel(args);
