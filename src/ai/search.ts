@@ -188,41 +188,10 @@ export async function performSearch(query: string, type: 'web' | 'images' | 'new
 		throw new Error('Missing API key: set GOOGLE_API_KEY (preferred) or GEMINI_API_KEY');
 	}
 
-	const ai = new GoogleGenAI({
-		apiKey,
-	});
-
-	const tools = [{ codeExecution: {}, googleSearch: {} }];
-
-	const config = {
-		thinkingConfig: {
-			thinkingBudget: 0,
-		},
-		tools,
-		systemInstruction: [
-			{
-				text: `You are a search assistant. Perform the requested search and provide relevant results.
-				Search type: ${type}
-				${limit ? `Limit results to approximately ${limit} items.` : ''}
-				If no meaningful results exist, say "No results found".`,
-			},
-		],
-	};
-
-	const model = 'gemini-flash-latest';
-
+	const ai = new GoogleGenAI({ apiKey });
+	const config = buildSearchConfig(type, limit);
 	const searchPrompt = generateSearchPrompt(query, type, limit);
-
-	const contents = [
-		{
-			role: 'user',
-			parts: [
-				{
-					text: searchPrompt,
-				},
-			],
-		},
-	];
+	const contents = [{ role: 'user', parts: [{ text: searchPrompt }] }];
 
 	const maxRetries = 3;
 	const baseRetryDelay = 2000;
@@ -230,48 +199,20 @@ export async function performSearch(query: string, type: 'web' | 'images' | 'new
 	for (let attempt = 1; attempt <= maxRetries; attempt++) {
 		try {
 			const response = await ai.models.generateContentStream({
-				model,
+				model: 'gemini-flash-latest',
 				config,
 				contents,
 			});
 
-			let resultText = '';
-			let codeOutput = '';
-
-			for await (const chunk of response) {
-				if (!chunk.candidates || !chunk.candidates[0].content || !chunk.candidates[0].content.parts) {
-					continue;
-				}
-
-				const part = chunk.candidates[0].content.parts[0];
-
-				if (part.text) {
-					resultText += part.text;
-				}
-
-				if (part.executableCode) {
-					console.log('Code executed:', part.executableCode);
-				}
-
-				if (part.codeExecutionResult) {
-					codeOutput += JSON.stringify(part.codeExecutionResult);
-				}
-			}
-
-			return resultText || codeOutput || 'No results found for your search query.';
+			return await processSearchStream(response);
 		} catch (error: any) {
-			const statusCode = error?.status || 0;
-			const isRetriable = statusCode === 500 || statusCode === 502 || statusCode === 503 || statusCode === 504;
-
-			if (isRetriable && attempt < maxRetries) {
-				const delay = baseRetryDelay * Math.pow(2, attempt - 1);
-				console.log(`Search failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`);
-				await new Promise((resolve) => setTimeout(resolve, delay));
+			if (isSearchRetriable(error) && attempt < maxRetries) {
+				await retrySearchWithDelay(attempt, maxRetries, baseRetryDelay);
 				continue;
 			}
 
 			console.error('Search error:', error);
-			const errorMessage = error?.message || error?.error?.message || 'Unknown error';
+			const errorMessage = extractSearchError(error);
 			throw new Error(
 				`Search temporarily unavailable (server error). Please try again in a moment. Details: ${errorMessage}`,
 			);
@@ -284,6 +225,63 @@ export async function performSearch(query: string, type: 'web' | 'images' | 'new
 function generateSearchPrompt(query: string, type: 'web' | 'images' | 'news', limit?: number): string {
 	const limitText = limit ? ` (limit to ${limit} results)` : '';
 	return `Search for: "${query}"${limitText}. Type: ${type}.`;
+}
+
+function isSearchRetriable(error: any): boolean {
+	const statusCode = error?.status || 0;
+	return statusCode === 500 || statusCode === 502 || statusCode === 503 || statusCode === 504;
+}
+
+async function retrySearchWithDelay(attempt: number, maxRetries: number, baseDelay: number): Promise<void> {
+	const delay = baseDelay * Math.pow(2, attempt - 1);
+	console.log(`Search failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`);
+	await new Promise((resolve) => setTimeout(resolve, delay));
+}
+
+function extractSearchError(error: any): string {
+	return error?.message || error?.error?.message || 'Unknown error';
+}
+
+function buildSearchConfig(type: string, limit?: number): any {
+	return {
+		thinkingConfig: { thinkingBudget: 0 },
+		tools: [{ codeExecution: {}, googleSearch: {} }],
+		systemInstruction: [
+			{
+				text: `You are a search assistant. Perform the requested search and provide relevant results.
+				Search type: ${type}
+				${limit ? `Limit results to approximately ${limit} items.` : ''}
+				If no meaningful results exist, say "No results found".`,
+			},
+		],
+	};
+}
+
+async function processSearchStream(response: any): Promise<string> {
+	let resultText = '';
+	let codeOutput = '';
+
+	for await (const chunk of response) {
+		if (!chunk.candidates || !chunk.candidates[0].content || !chunk.candidates[0].content.parts) {
+			continue;
+		}
+
+		const part = chunk.candidates[0].content.parts[0];
+
+		if (part.text) {
+			resultText += part.text;
+		}
+
+		if (part.executableCode) {
+			console.log('Code executed:', part.executableCode);
+		}
+
+		if (part.codeExecutionResult) {
+			codeOutput += JSON.stringify(part.codeExecutionResult);
+		}
+	}
+
+	return resultText || codeOutput || 'No results found for your search query.';
 }
 
 async function searchWithEngine(
