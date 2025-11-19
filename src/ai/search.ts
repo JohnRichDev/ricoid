@@ -79,7 +79,12 @@ export async function DFINT(
 		apiKey,
 	});
 
-	const thinkingBudget = depth === 'deep' ? 10000 : depth === 'moderate' ? 5000 : 0;
+	let thinkingBudget = 0;
+	if (depth === 'deep') {
+		thinkingBudget = 10000;
+	} else if (depth === 'moderate') {
+		thinkingBudget = 5000;
+	}
 
 	const tools = [{ codeExecution: {}, googleSearch: {} }];
 
@@ -103,14 +108,20 @@ Maximum results: ${maxResults}`,
 
 	const model = 'gemini-flash-latest';
 
+	const includeImagesLine = includeImages ? 'Include images.\n' : '';
+	const includeNewsLine = includeNews ? 'Include news.\n' : '';
+	const scrapedSection = scrapedContent ? `Scraped content:\n${scrapedContent}\n\n` : '';
+	const resultsSection =
+		searchResults.length > 0
+			? `Results from ${engines.join(', ')}:\n${searchResults.map((r) => `- ${r.title} (${r.url})\n  ${r.snippet}`).join('\n\n')}\n\n`
+			: '';
+
 	const searchPrompt = `Conduct digital footprint intelligence on: "${query}"
 	
 Depth: ${depth}
-${includeImages ? 'Include images.\n' : ''}${includeNews ? 'Include news.\n' : ''}Max results: ${maxResults}
+${includeImagesLine}${includeNewsLine}Max results: ${maxResults}
 
-${scrapedContent ? `Scraped content:\n${scrapedContent}\n\n` : ''}
-${searchResults.length > 0 ? `Results from ${engines.join(', ')}:\n${searchResults.map((r) => `- ${r.title} (${r.url})\n  ${r.snippet}`).join('\n\n')}\n\n` : ''}
-
+${scrapedSection}${resultsSection}
 Provide organized, actionable intelligence.`;
 
 	const contents = [
@@ -262,7 +273,7 @@ async function processSearchStream(response: any): Promise<string> {
 	let codeOutput = '';
 
 	for await (const chunk of response) {
-		if (!chunk.candidates || !chunk.candidates[0].content || !chunk.candidates[0].content.parts) {
+		if (!chunk.candidates?.[0]?.content?.parts) {
 			continue;
 		}
 
@@ -402,10 +413,9 @@ async function searchWithEngine(
 										url = decodeURIComponent(actualUrl.replace(/^a1/, ''));
 									}
 								} catch (e) {
-									//
+									console.warn('Failed to decode Bing URL:', e);
 								}
 							}
-
 							items.push({
 								title: titleElem.textContent?.trim() || '',
 								url: url,
@@ -413,7 +423,7 @@ async function searchWithEngine(
 							});
 						}
 					} catch (e) {
-						//
+						console.warn('Failed to parse search result:', e);
 					}
 				});
 
