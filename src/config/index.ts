@@ -400,7 +400,7 @@ export function loadSettings(): BotSettings {
 		if (typeof rawSettings.prompt === 'string') {
 			prompt = rawSettings.prompt;
 		} else {
-			prompt = buildPromptFromConfig(rawSettings.prompt as PromptConfig);
+			prompt = buildPromptFromConfig(rawSettings.prompt);
 		}
 	} else {
 		prompt = DEFAULT_PROMPT;
