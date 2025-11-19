@@ -47,8 +47,13 @@ function stableStringify(value: any): string {
 	if (typeof value === 'number' || typeof value === 'boolean') return JSON.stringify(value);
 	if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`;
 	if (typeof value === 'object') {
-		const keys = Object.keys(value).sort();
-		return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify((value as any)[key])}`).join(',')}}`;
+		const keys = Object.keys(value).sort((a, b) => a.localeCompare(b));
+		const parts = keys.map((key) => {
+			const keyStr = JSON.stringify(key);
+			const valStr = stableStringify((value as any)[key]);
+			return `${keyStr}:${valStr}`;
+		});
+		return `{${parts.join(',')}}`;
 	}
 	return JSON.stringify(String(value));
 }
