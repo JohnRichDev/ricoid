@@ -105,20 +105,208 @@ async function executeFunctionHandler(
 	if (call.name === 'executeCode') return await handler(argsToUse, message);
 	return await handler(argsToUse);
 }
-export async function processFunctionCall(
+
+async function updateChecklistEmbed(
+	checklistMessage: Message | null,
+	executionLog: FunctionExecutionLogEntry[],
+): Promise<void> {
+	if (!checklistMessage) return;
+	try {
+		const embed = createChecklistEmbed(executionLog);
+		await checklistMessage.edit({ embeds: [embed] });
+	} catch {}
+}
+
+function handleMissingHandler(
 	call: any,
 	message: Message,
 	functionResults: Array<{ name: string; result: any }>,
 	allFunctionResults: Array<{ name: string; result: any }>,
 	executionLog: FunctionExecutionLogEntry[],
+	logEntryIndex: number,
+	sequenceCounterRef: { current: number },
+): void {
+	logFunctionAction(message, 'handler-missing', { name: call.name });
+	const availableFunctions = Object.keys(functionHandlers as any);
+	const normalizedCallName = call.name.toLowerCase().replace(/_/g, '');
+	const suggestion = availableFunctions.find((fn) => fn.toLowerCase().replace(/_/g, '') === normalizedCallName);
+	let errorMessage = `Unknown function: ${call.name}`;
+	if (suggestion) errorMessage += `. Did you mean '${suggestion}'? Use exact function names from your tools.`;
+	const errorResult = { error: errorMessage };
+	functionResults.push({ name: call.name, result: errorResult });
+	allFunctionResults.push({ name: call.name, result: errorResult });
+	if (logEntryIndex >= 0) markEntryResult(executionLog[logEntryIndex], 'error', errorResult, sequenceCounterRef);
+	else
+		pushLogEntry(executionLog, {
+			name: call.name,
+			args: call.args ?? null,
+			status: 'error',
+			result: errorResult,
+			sequence: sequenceCounterRef.current++,
+		});
+}
+
+function handleScreenshotRepeat(
+	call: any,
+	message: Message,
+	functionResults: Array<{ name: string; result: any }>,
+	allFunctionResults: Array<{ name: string; result: any }>,
+	executionLog: FunctionExecutionLogEntry[],
+	logEntryIndex: number,
+	sequenceCounterRef: { current: number },
+	attemptCount: number,
+): boolean {
+	if (call.name !== 'screenshotWebsite' || attemptCount <= 1) return false;
+	logFunctionAction(message, 'screenshot-repeat-skip', { name: call.name, attempt: attemptCount });
+	const info =
+		'Screenshot already captured for this request. Ask for another screenshot explicitly in a new message if you need a fresh capture.';
+	functionResults.push({ name: call.name, result: info });
+	allFunctionResults.push({ name: call.name, result: info });
+	if (logEntryIndex >= 0) markEntryResult(executionLog[logEntryIndex], 'skipped', info, sequenceCounterRef);
+	else
+		pushLogEntry(executionLog, {
+			name: call.name,
+			args: call.args ?? null,
+			status: 'skipped',
+			result: info,
+			sequence: sequenceCounterRef.current++,
+		});
+	return true;
+}
+
+function handleSingleExecutionSkip(
+	call: any,
+	message: Message,
+	functionResults: Array<{ name: string; result: any }>,
+	allFunctionResults: Array<{ name: string; result: any }>,
+	executionLog: FunctionExecutionLogEntry[],
+	logEntryIndex: number,
+	normalizedArgs: any,
+	executedResultsByName: Map<string, any>,
+	sequenceCounterRef: { current: number },
+	loopGuardRef: { current: number },
+): boolean {
+	if (!SINGLE_EXECUTION_FUNCTIONS.has(call.name) || !executedResultsByName.has(call.name)) return false;
+	logFunctionAction(message, 'single-execution-skip', { name: call.name });
+	const previousResultByName = executedResultsByName.get(call.name);
+	const duplicateMessage = formatDuplicateMessage(call.name, previousResultByName);
+	functionResults.push({ name: call.name, result: duplicateMessage });
+	allFunctionResults.push({ name: call.name, result: duplicateMessage });
+	if (logEntryIndex >= 0) markEntryResult(executionLog[logEntryIndex], 'skipped', duplicateMessage, sequenceCounterRef);
+	else
+		pushLogEntry(executionLog, {
+			name: call.name,
+			args: normalizedArgs,
+			status: 'skipped',
+			result: duplicateMessage,
+			sequence: sequenceCounterRef.current++,
+		});
+	loopGuardRef.current++;
+	return true;
+}
+
+function handleSignatureDuplicateSkip(
+	call: any,
+	message: Message,
+	functionResults: Array<{ name: string; result: any }>,
+	allFunctionResults: Array<{ name: string; result: any }>,
+	executionLog: FunctionExecutionLogEntry[],
+	logEntryIndex: number,
+	normalizedArgs: any,
+	executedCallCache: Map<string, any>,
+	callSignature: string,
+	sequenceCounterRef: { current: number },
+	loopGuardRef: { current: number },
+): boolean {
+	if (!executedCallCache.has(callSignature)) return false;
+	logFunctionAction(message, 'signature-duplicate-skip', { name: call.name });
+	const previousResult = executedCallCache.get(callSignature);
+	const duplicateMessage = formatDuplicateMessage(call.name, previousResult);
+	functionResults.push({ name: call.name, result: duplicateMessage });
+	allFunctionResults.push({ name: call.name, result: duplicateMessage });
+	if (logEntryIndex >= 0) markEntryResult(executionLog[logEntryIndex], 'skipped', duplicateMessage, sequenceCounterRef);
+	else
+		pushLogEntry(executionLog, {
+			name: call.name,
+			args: normalizedArgs,
+			status: 'skipped',
+			result: duplicateMessage,
+			sequence: sequenceCounterRef.current++,
+		});
+	loopGuardRef.current++;
+	return true;
+}
+
+async function executeFunction(
+	call: any,
+	message: Message,
+	handler: Function,
+	normalizedArgs: any,
+	functionResults: Array<{ name: string; result: any }>,
+	allFunctionResults: Array<{ name: string; result: any }>,
+	executionLog: FunctionExecutionLogEntry[],
+	logEntryIndex: number,
 	executedCallCache: Map<string, any>,
 	executedResultsByName: Map<string, any>,
-	functionAttemptCounts: Map<string, number>,
-	loopGuardRef: { current: number },
-	checklistMessage: Message | null,
-	newChannelIdRef: { current: string | null },
+	callSignature: string,
 	sequenceCounterRef: { current: number },
+	newChannelIdRef: { current: string | null },
 ): Promise<void> {
+	logFunctionAction(message, 'execute-start', { name: call.name, args: normalizedArgs });
+	let result = await executeFunctionHandler(call, message, handler, normalizedArgs);
+	if (call.name === 'purgeChannel' && typeof result === 'string') {
+		const { newChannelId, cleanedResult } = extractNewChannelId(result);
+		if (newChannelId) {
+			newChannelIdRef.current = newChannelId;
+			result = cleanedResult;
+		}
+	}
+	functionResults.push({ name: call.name, result });
+	allFunctionResults.push({ name: call.name, result });
+	executedCallCache.set(callSignature, result);
+	executedResultsByName.set(call.name, result);
+	logFunctionAction(message, 'execute-success', { name: call.name, result });
+	if (logEntryIndex >= 0) markEntryResult(executionLog[logEntryIndex], 'success', result, sequenceCounterRef);
+	else
+		pushLogEntry(executionLog, {
+			name: call.name,
+			args: normalizedArgs,
+			status: 'success',
+			result,
+			sequence: sequenceCounterRef.current++,
+		});
+}
+
+type ProcessFunctionCallParams = {
+	call: any;
+	message: Message;
+	functionResults: Array<{ name: string; result: any }>;
+	allFunctionResults: Array<{ name: string; result: any }>;
+	executionLog: FunctionExecutionLogEntry[];
+	executedCallCache: Map<string, any>;
+	executedResultsByName: Map<string, any>;
+	functionAttemptCounts: Map<string, number>;
+	loopGuardRef: { current: number };
+	checklistMessage: Message | null;
+	newChannelIdRef: { current: string | null };
+	sequenceCounterRef: { current: number };
+};
+
+export async function processFunctionCall(params: ProcessFunctionCallParams): Promise<void> {
+	const {
+		call,
+		message,
+		functionResults,
+		allFunctionResults,
+		executionLog,
+		executedCallCache,
+		executedResultsByName,
+		functionAttemptCounts,
+		loopGuardRef,
+		checklistMessage,
+		newChannelIdRef,
+		sequenceCounterRef,
+	} = params;
 	let callSignature: string | null = null;
 	let logEntryIndex: number = -1;
 	try {
@@ -139,138 +327,88 @@ export async function processFunctionCall(
 			);
 		const handler = (functionHandlers as any)[call.name];
 		if (!handler) {
-			logFunctionAction(message, 'handler-missing', { name: call.name });
-			const availableFunctions = Object.keys(functionHandlers as any);
-			const normalizedCallName = call.name.toLowerCase().replace(/_/g, '');
-			const suggestion = availableFunctions.find((fn) => fn.toLowerCase().replace(/_/g, '') === normalizedCallName);
-			let errorMessage = `Unknown function: ${call.name}`;
-			if (suggestion) errorMessage += `. Did you mean '${suggestion}'? Use exact function names from your tools.`;
-			const errorResult = { error: errorMessage };
-			functionResults.push({ name: call.name, result: errorResult });
-			allFunctionResults.push({ name: call.name, result: errorResult });
-			if (logEntryIndex >= 0) markEntryResult(executionLog[logEntryIndex], 'error', errorResult, sequenceCounterRef);
-			else
-				pushLogEntry(executionLog, {
-					name: call.name,
-					args: call.args ?? null,
-					status: 'error',
-					result: errorResult,
-					sequence: sequenceCounterRef.current++,
-				});
-			if (checklistMessage) {
-				try {
-					const embed = createChecklistEmbed(executionLog);
-					await checklistMessage.edit({ embeds: [embed] });
-				} catch {}
-			}
+			handleMissingHandler(
+				call,
+				message,
+				functionResults,
+				allFunctionResults,
+				executionLog,
+				logEntryIndex,
+				sequenceCounterRef,
+			);
+			await updateChecklistEmbed(checklistMessage, executionLog);
 			return;
 		}
 		const attemptCount = (functionAttemptCounts.get(call.name) ?? 0) + 1;
 		functionAttemptCounts.set(call.name, attemptCount);
-		if (call.name === 'screenshotWebsite' && attemptCount > 1) {
-			logFunctionAction(message, 'screenshot-repeat-skip', { name: call.name, attempt: attemptCount });
-			const info =
-				'Screenshot already captured for this request. Ask for another screenshot explicitly in a new message if you need a fresh capture.';
-			functionResults.push({ name: call.name, result: info });
-			allFunctionResults.push({ name: call.name, result: info });
-			if (logEntryIndex >= 0) markEntryResult(executionLog[logEntryIndex], 'skipped', info, sequenceCounterRef);
-			else
-				pushLogEntry(executionLog, {
-					name: call.name,
-					args: call.args ?? null,
-					status: 'skipped',
-					result: info,
-					sequence: sequenceCounterRef.current++,
-				});
-			if (checklistMessage) {
-				try {
-					const embed = createChecklistEmbed(executionLog);
-					await checklistMessage.edit({ embeds: [embed] });
-				} catch {}
-			}
+		if (
+			handleScreenshotRepeat(
+				call,
+				message,
+				functionResults,
+				allFunctionResults,
+				executionLog,
+				logEntryIndex,
+				sequenceCounterRef,
+				attemptCount,
+			)
+		) {
+			await updateChecklistEmbed(checklistMessage, executionLog);
 			return;
 		}
-		if (SINGLE_EXECUTION_FUNCTIONS.has(call.name) && executedResultsByName.has(call.name)) {
-			logFunctionAction(message, 'single-execution-skip', { name: call.name });
-			const previousResultByName = executedResultsByName.get(call.name);
-			const duplicateMessage = formatDuplicateMessage(call.name, previousResultByName);
-			functionResults.push({ name: call.name, result: duplicateMessage });
-			allFunctionResults.push({ name: call.name, result: duplicateMessage });
-			if (logEntryIndex >= 0)
-				markEntryResult(executionLog[logEntryIndex], 'skipped', duplicateMessage, sequenceCounterRef);
-			else
-				pushLogEntry(executionLog, {
-					name: call.name,
-					args: normalizedArgs,
-					status: 'skipped',
-					result: duplicateMessage,
-					sequence: sequenceCounterRef.current++,
-				});
-			loopGuardRef.current++;
-			if (checklistMessage) {
-				try {
-					const embed = createChecklistEmbed(executionLog);
-					await checklistMessage.edit({ embeds: [embed] });
-				} catch {}
-			}
+		if (
+			handleSingleExecutionSkip(
+				call,
+				message,
+				functionResults,
+				allFunctionResults,
+				executionLog,
+				logEntryIndex,
+				normalizedArgs,
+				executedResultsByName,
+				sequenceCounterRef,
+				loopGuardRef,
+			)
+		) {
+			await updateChecklistEmbed(checklistMessage, executionLog);
 			return;
 		}
-		if (executedCallCache.has(callSignature)) {
-			logFunctionAction(message, 'signature-duplicate-skip', { name: call.name });
-			const previousResult = executedCallCache.get(callSignature);
-			const duplicateMessage = formatDuplicateMessage(call.name, previousResult);
-			functionResults.push({ name: call.name, result: duplicateMessage });
-			allFunctionResults.push({ name: call.name, result: duplicateMessage });
-			if (logEntryIndex >= 0)
-				markEntryResult(executionLog[logEntryIndex], 'skipped', duplicateMessage, sequenceCounterRef);
-			else
-				pushLogEntry(executionLog, {
-					name: call.name,
-					args: normalizedArgs,
-					status: 'skipped',
-					result: duplicateMessage,
-					sequence: sequenceCounterRef.current++,
-				});
-			loopGuardRef.current++;
-			if (checklistMessage) {
-				try {
-					const embed = createChecklistEmbed(executionLog);
-					await checklistMessage.edit({ embeds: [embed] });
-				} catch {}
-			}
+		if (
+			handleSignatureDuplicateSkip(
+				call,
+				message,
+				functionResults,
+				allFunctionResults,
+				executionLog,
+				logEntryIndex,
+				normalizedArgs,
+				executedCallCache,
+				callSignature,
+				sequenceCounterRef,
+				loopGuardRef,
+			)
+		) {
+			await updateChecklistEmbed(checklistMessage, executionLog);
 			return;
 		}
 		setOperationContext({ message, userId: message.author.id, channelId: message.channelId });
 		try {
-			logFunctionAction(message, 'execute-start', { name: call.name, args: normalizedArgs });
-			let result = await executeFunctionHandler(call, message, handler, normalizedArgs);
-			if (call.name === 'purgeChannel' && typeof result === 'string') {
-				const { newChannelId, cleanedResult } = extractNewChannelId(result);
-				if (newChannelId) {
-					newChannelIdRef.current = newChannelId;
-					result = cleanedResult;
-				}
-			}
-			functionResults.push({ name: call.name, result });
-			allFunctionResults.push({ name: call.name, result });
-			executedCallCache.set(callSignature, result);
-			executedResultsByName.set(call.name, result);
-			logFunctionAction(message, 'execute-success', { name: call.name, result });
-			if (logEntryIndex >= 0) markEntryResult(executionLog[logEntryIndex], 'success', result, sequenceCounterRef);
-			else
-				pushLogEntry(executionLog, {
-					name: call.name,
-					args: normalizedArgs,
-					status: 'success',
-					result,
-					sequence: sequenceCounterRef.current++,
-				});
-			if (checklistMessage) {
-				try {
-					const embed = createChecklistEmbed(executionLog);
-					await checklistMessage.edit({ embeds: [embed] });
-				} catch {}
-			}
+			await executeFunction(
+				call,
+				message,
+				handler,
+				normalizedArgs,
+				functionResults,
+				allFunctionResults,
+				executionLog,
+				logEntryIndex,
+				executedCallCache,
+				executedResultsByName,
+				callSignature,
+				sequenceCounterRef,
+				newChannelIdRef,
+			);
+			await updateChecklistEmbed(checklistMessage, executionLog);
 			await new Promise((r) => setTimeout(r, 500));
 		} finally {
 			clearOperationContext();
@@ -291,12 +429,7 @@ export async function processFunctionCall(
 					result: errorResult,
 					sequence: sequenceCounterRef.current++,
 				});
-			if (checklistMessage) {
-				try {
-					const embed = createChecklistEmbed(executionLog);
-					await checklistMessage.edit({ embeds: [embed] });
-				} catch {}
-			}
+			await updateChecklistEmbed(checklistMessage, executionLog);
 		}
 	}
 
@@ -305,13 +438,7 @@ export async function processFunctionCall(
 		functionResults.push({ name: call.name, result: skippedInfo });
 		allFunctionResults.push({ name: call.name, result: skippedInfo });
 		logFunctionAction(message, 'post-process-skip', { name: call.name, info: skippedInfo });
-		if (checklistMessage) {
-			try {
-				const embed = createChecklistEmbed(executionLog);
-				await checklistMessage.edit({ embeds: [embed] });
-			} catch {}
-		}
-		return;
+		await updateChecklistEmbed(checklistMessage, executionLog);
 	}
 }
 export async function processFunctionCalls(
@@ -330,9 +457,8 @@ export async function processFunctionCalls(
 	if (!response.functionCalls?.length) return { hasFunctionCalls: false, functionResults: [] };
 	const functionResults: Array<{ name: string; result: any }> = [];
 	const functionAttemptCounts = new Map<string, number>();
-	for (let i = 0; i < response.functionCalls.length; i++) {
-		const call = response.functionCalls[i];
-		await processFunctionCall(
+	for (const call of response.functionCalls) {
+		await processFunctionCall({
 			call,
 			message,
 			functionResults,
@@ -345,7 +471,7 @@ export async function processFunctionCalls(
 			checklistMessage,
 			newChannelIdRef,
 			sequenceCounterRef,
-		);
+		});
 	}
 	for (const funcResult of functionResults)
 		conversation.push({
