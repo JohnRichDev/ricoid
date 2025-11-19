@@ -79,7 +79,7 @@ export async function screenshotWebsite({
 			});
 			const message = await textChannel.send({
 				content: `Website screenshot for ${parsedUrl.toString()}${
-					response && response.status() ? ` (HTTP ${response.status()})` : ''
+					response?.status() ? ` (HTTP ${response.status()})` : ''
 				}`,
 				files: [attachment],
 			});

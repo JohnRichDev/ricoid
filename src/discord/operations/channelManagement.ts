@@ -59,6 +59,13 @@ function setString(value: unknown): string | null {
 	if (value === undefined || value === null) {
 		return null;
 	}
+	if (typeof value === 'object') {
+		try {
+			return JSON.stringify(value);
+		} catch {
+			return null;
+		}
+	}
 	const stringValue = String(value).trim();
 	return stringValue.length ? stringValue : null;
 }
@@ -91,7 +98,8 @@ function deriveFieldPartsFromString(raw: string, index: number): { name: string;
 	}
 
 	if (!name) {
-		const sentenceMatch = condensed.match(/^(.{20,140}?[.!?])\s+(.*)$/s);
+		const sentenceRegex = /^(.{20,140}?[.!?])\s+(.*)$/s;
+		const sentenceMatch = sentenceRegex.exec(condensed);
 		if (sentenceMatch) {
 			name = sentenceMatch[1].trim();
 			value = sentenceMatch[2].trim();
@@ -196,21 +204,21 @@ function extractFieldsFromDescription(description: string): {
 	};
 }
 
-function buildEmbedFooter(footer: any): any | null {
+function buildEmbedFooter(footer: any): Record<string, any> | null {
 	const footerText = setString((footer as any).text);
 	if (!footerText) return null;
 
-	const normalizedFooter: any = { text: clampString(footerText, 2048) };
+	const normalizedFooter: Record<string, any> = { text: clampString(footerText, 2048) };
 	const footerIcon = setString((footer as any).iconUrl);
 	if (footerIcon) normalizedFooter.icon_url = footerIcon;
 	return normalizedFooter;
 }
 
-function buildEmbedAuthor(author: any): any | null {
+function buildEmbedAuthor(author: any): Record<string, any> | null {
 	const authorName = setString((author as any).name);
 	if (!authorName) return null;
 
-	const normalizedAuthor: any = { name: clampString(authorName, 256) };
+	const normalizedAuthor: Record<string, any> = { name: clampString(authorName, 256) };
 	const authorIcon = setString((author as any).iconUrl);
 	const authorUrl = setString((author as any).url);
 	if (authorIcon) normalizedAuthor.icon_url = authorIcon;
