@@ -40,7 +40,7 @@ function finalizePendingEntries(
 		if (entry.status === 'pending') {
 			entry.status = 'skipped';
 			entry.result = 'Not required after processing';
-			if (entry.sequence === undefined) entry.sequence = sequenceCounterRef.current++;
+			entry.sequence ??= sequenceCounterRef.current++;
 			changed = true;
 		}
 	}
@@ -346,12 +346,16 @@ Respond with ONLY a JSON array of function names in execution order, e.g., ["cre
 		const completedActions = executionLog
 			.filter((e) => e.status === 'success')
 			.map((e) => {
-				const resultPreview =
-					typeof e.result === 'string'
-						? e.result.length > 100
-							? `${e.result.slice(0, 100)}...`
-							: e.result
-						: JSON.stringify(e.result).slice(0, 100);
+				let resultPreview: string;
+				if (typeof e.result === 'string') {
+					if (e.result.length > 100) {
+						resultPreview = `${e.result.slice(0, 100)}...`;
+					} else {
+						resultPreview = e.result;
+					}
+				} else {
+					resultPreview = JSON.stringify(e.result).slice(0, 100);
+				}
 				return `✅ **${e.name}**: ${resultPreview}`;
 			});
 		const failedActions = executionLog

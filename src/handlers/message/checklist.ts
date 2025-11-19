@@ -8,7 +8,12 @@ function truncateSummary(value: string, maxLength: number = 160): string {
 }
 function summarizeObject(result: Record<string, any>): string {
 	if ('error' in result && typeof result.error === 'string') return truncateSummary(normalizeSummaryText(result.error));
-	const label = typeof result.title === 'string' ? result.title : typeof result.name === 'string' ? result.name : null;
+	let label: string | null = null;
+	if (typeof result.title === 'string') {
+		label = result.title;
+	} else if (typeof result.name === 'string') {
+		label = result.name;
+	}
 	const valueField = ['value', 'description', 'content', 'message', 'text', 'summary', 'result']
 		.map((key) => result[key])
 		.find((val) => typeof val === 'string' && val.trim().length > 0);

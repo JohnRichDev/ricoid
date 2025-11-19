@@ -73,7 +73,7 @@ export function buildConversationContext(
 	if (recentMessages.length > 0) {
 		const functionResultsInHistory = recentMessages.filter((msg) => {
 			const firstPartText = getTextFromPart(msg.parts[0]);
-			return msg.role === 'user' && firstPartText !== null && firstPartText.startsWith(aiConfig.functionCallPrefix);
+			return msg.role === 'user' && firstPartText?.startsWith(aiConfig.functionCallPrefix);
 		});
 
 		let contextMessage = aiConfig.messages.previousContext;
@@ -81,7 +81,7 @@ export function buildConversationContext(
 		const recentUserMessages = recentMessages
 			.filter((msg) => {
 				const firstPartText = getTextFromPart(msg.parts[0]);
-				return msg.role === 'user' && firstPartText !== null && !firstPartText.startsWith(aiConfig.functionCallPrefix);
+				return msg.role === 'user' && !firstPartText?.startsWith(aiConfig.functionCallPrefix);
 			})
 			.slice(-5);
 
