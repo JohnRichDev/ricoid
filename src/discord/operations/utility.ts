@@ -37,7 +37,12 @@ function playNumberGuess(userChoice?: string): string {
 	}
 
 	const correct = guess === targetNumber;
-	const hint = guess < targetNumber ? 'too_low' : guess > targetNumber ? 'too_high' : null;
+	let hint: string | null = null;
+	if (guess < targetNumber) {
+		hint = 'too_low';
+	} else if (guess > targetNumber) {
+		hint = 'too_high';
+	}
 
 	return JSON.stringify({ guess, target: targetNumber, correct, hint });
 }
