@@ -3,8 +3,83 @@ import { discordClient } from '../client.js';
 import { findTextChannel } from './core.js';
 import { performSearch, DFINT } from '../../ai/search.js';
 import puppeteer from 'puppeteer';
-import type { Browser } from 'puppeteer';
 import type { WebsiteScreenshotData } from '../../types/index.js';
+
+function validateUrlAndPrepare(url: unknown): { normalizedUrl: string; parsedUrl: URL } | string {
+	let normalizedUrl = typeof url === 'string' ? url.trim() : '';
+	if (!normalizedUrl) {
+		return 'Please provide a URL to capture.';
+	}
+	if (!/^https?:\/\//i.test(normalizedUrl)) {
+		normalizedUrl = `https://${normalizedUrl}`;
+	}
+	let parsedUrl: URL;
+	try {
+		parsedUrl = new URL(normalizedUrl);
+	} catch {
+		return 'Invalid URL. Provide a valid http or https address.';
+	}
+	return { normalizedUrl, parsedUrl };
+}
+
+function calculateViewportDimensions(
+	width?: number,
+	height?: number,
+	deviceScaleFactor?: number,
+): { viewportWidth: number; viewportHeight: number; scale: number } {
+	const viewportWidth =
+		typeof width === 'number' && Number.isFinite(width) ? Math.min(Math.max(Math.round(width), 320), 3840) : 1280;
+	const viewportHeight =
+		typeof height === 'number' && Number.isFinite(height) ? Math.min(Math.max(Math.round(height), 320), 2160) : 720;
+	const scale =
+		typeof deviceScaleFactor === 'number' && Number.isFinite(deviceScaleFactor)
+			? Math.min(Math.max(deviceScaleFactor, 1), 3)
+			: 1;
+	return { viewportWidth, viewportHeight, scale };
+}
+
+function calculateWaitDelay(delayMs?: number): number {
+	return typeof delayMs === 'number' && Number.isFinite(delayMs)
+		? Math.min(Math.max(Math.round(delayMs), 0), 30000)
+		: 0;
+}
+
+async function captureScreenshot(
+	parsedUrl: URL,
+	viewportWidth: number,
+	viewportHeight: number,
+	scale: number,
+	waitAfterLoad: number,
+	fullPage: boolean = true,
+): Promise<Buffer> {
+	const browser = await puppeteer.launch();
+	try {
+		const page = await browser.newPage();
+		try {
+			await page.setViewport({ width: viewportWidth, height: viewportHeight, deviceScaleFactor: scale });
+			await page.setUserAgent(
+				'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+			);
+			await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+			try {
+				await page.goto(parsedUrl.toString(), { waitUntil: 'networkidle2', timeout: 60000 });
+			} catch (error) {
+				throw new Error(
+					`Failed to load ${parsedUrl.toString()}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+				);
+			}
+			if (waitAfterLoad > 0) {
+				await new Promise((resolve) => setTimeout(resolve, waitAfterLoad));
+			}
+			const screenshotResult = await page.screenshot({ type: 'png', fullPage });
+			return Buffer.isBuffer(screenshotResult) ? screenshotResult : Buffer.from(screenshotResult);
+		} finally {
+			await page.close();
+		}
+	} finally {
+		await browser.close();
+	}
+}
 
 export async function screenshotWebsite({
 	server,
@@ -27,72 +102,37 @@ export async function screenshotWebsite({
 	if (!hasSend || !hasAttach) {
 		throw new Error(`Missing Send Messages or Attach Files permission in #${textChannel.name}.`);
 	}
-	let normalizedUrl = typeof url === 'string' ? url.trim() : '';
-	if (!normalizedUrl) {
-		return 'Please provide a URL to capture.';
+
+	const urlResult = validateUrlAndPrepare(url);
+	if (typeof urlResult === 'string') {
+		return urlResult;
 	}
-	if (!/^https?:\/\//i.test(normalizedUrl)) {
-		normalizedUrl = `https://${normalizedUrl}`;
-	}
-	let parsedUrl: URL;
+	const { parsedUrl } = urlResult;
+
+	const { viewportWidth, viewportHeight, scale } = calculateViewportDimensions(width, height, deviceScaleFactor);
+	const waitAfterLoad = calculateWaitDelay(delayMs);
+
 	try {
-		parsedUrl = new URL(normalizedUrl);
-	} catch {
-		return 'Invalid URL. Provide a valid http or https address.';
-	}
-	const viewportWidth =
-		typeof width === 'number' && Number.isFinite(width) ? Math.min(Math.max(Math.round(width), 320), 3840) : 1280;
-	const viewportHeight =
-		typeof height === 'number' && Number.isFinite(height) ? Math.min(Math.max(Math.round(height), 320), 2160) : 720;
-	const scale =
-		typeof deviceScaleFactor === 'number' && Number.isFinite(deviceScaleFactor)
-			? Math.min(Math.max(deviceScaleFactor, 1), 3)
-			: 1;
-	const waitAfterLoad =
-		typeof delayMs === 'number' && Number.isFinite(delayMs) ? Math.min(Math.max(Math.round(delayMs), 0), 30000) : 0;
-	let browser: Browser | null = null;
-	try {
-		browser = await puppeteer.launch();
-		const page = await browser.newPage();
-		try {
-			await page.setViewport({ width: viewportWidth, height: viewportHeight, deviceScaleFactor: scale });
-			await page.setUserAgent(
-				'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-			);
-			await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
-			let response;
-			try {
-				response = await page.goto(parsedUrl.toString(), { waitUntil: 'networkidle2', timeout: 60000 });
-			} catch (error) {
-				throw new Error(
-					`Failed to load ${parsedUrl.toString()}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-				);
-			}
-			if (waitAfterLoad > 0) {
-				await new Promise((resolve) => setTimeout(resolve, waitAfterLoad));
-			}
-			const screenshotResult = await page.screenshot({ type: 'png', fullPage: fullPage ?? true });
-			const buffer = Buffer.isBuffer(screenshotResult) ? screenshotResult : Buffer.from(screenshotResult);
-			const attachment = new AttachmentBuilder(buffer, {
-				name: `screenshot-${Date.now()}.png`,
-				description: `Screenshot of ${parsedUrl.toString()}`,
-			});
-			const message = await textChannel.send({
-				content: `Website screenshot for ${parsedUrl.toString()}${
-					response?.status() ? ` (HTTP ${response.status()})` : ''
-				}`,
-				files: [attachment],
-			});
-			return `Screenshot sent to #${textChannel.name}. Message ID: ${message.id}`;
-		} finally {
-			await page.close();
-		}
+		const buffer = await captureScreenshot(
+			parsedUrl,
+			viewportWidth,
+			viewportHeight,
+			scale,
+			waitAfterLoad,
+			fullPage ?? true,
+		);
+
+		const attachment = new AttachmentBuilder(buffer, {
+			name: `screenshot-${Date.now()}.png`,
+			description: `Screenshot of ${parsedUrl.toString()}`,
+		});
+		const message = await textChannel.send({
+			content: `Website screenshot for ${parsedUrl.toString()}`,
+			files: [attachment],
+		});
+		return `Screenshot sent to #${textChannel.name}. Message ID: ${message.id}`;
 	} catch (error) {
 		throw new Error(`Screenshot capture failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-	} finally {
-		if (browser) {
-			await browser.close();
-		}
 	}
 }
 
