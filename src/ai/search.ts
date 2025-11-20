@@ -15,70 +15,47 @@ interface ScrapedData {
 	images: string[];
 }
 
-export async function DFINT(
+async function performWebScraping(
 	query: string,
-	options?: {
-		depth?: 'shallow' | 'moderate' | 'deep';
-		includeImages?: boolean;
-		includeNews?: boolean;
-		maxResults?: number;
-		engines?: Array<'google' | 'bing' | 'duckduckgo' | 'yahoo'>;
-		scrapeResults?: boolean;
-	},
-): Promise<string> {
-	const depth = options?.depth || 'moderate';
-	const includeImages = options?.includeImages || false;
-	const includeNews = options?.includeNews || false;
-	const maxResults = options?.maxResults || 10;
-
-	const engines = options?.engines || (options?.scrapeResults ? ['google', 'bing', 'duckduckgo', 'yahoo'] : []);
-	const scrapeResults = options?.scrapeResults || false;
-
+	engines: Array<'google' | 'bing' | 'duckduckgo' | 'yahoo'>,
+	maxResults: number,
+): Promise<{ searchResults: SearchResult[]; scrapedContent: string }> {
 	let searchResults: SearchResult[] = [];
 	let scrapedContent = '';
 
-	if (scrapeResults && engines.length > 0) {
-		console.log(`[DFINT] Web scraping enabled. Searching across ${engines.length} engine(s): ${engines.join(', ')}`);
+	console.log(`[DFINT] Web scraping enabled. Searching across ${engines.length} engine(s): ${engines.join(', ')}`);
 
-		for (const engine of engines) {
-			try {
-				const results = await searchWithEngine(query, engine, Math.ceil(maxResults / engines.length));
-				searchResults.push(...results);
-				console.log(`[DFINT] Successfully retrieved ${results.length} results from ${engine}`);
-			} catch (error: any) {
-				console.warn(`[DFINT] Failed to search ${engine}: ${error.message}`);
-			}
+	for (const engine of engines) {
+		try {
+			const results = await searchWithEngine(query, engine, Math.ceil(maxResults / engines.length));
+			searchResults.push(...results);
+			console.log(`[DFINT] Successfully retrieved ${results.length} results from ${engine}`);
+		} catch (error: any) {
+			console.warn(`[DFINT] Failed to search ${engine}: ${error.message}`);
 		}
+	}
 
-		if (searchResults.length > 0) {
-			console.log(`[DFINT] Scraping content from ${Math.min(3, searchResults.length)} top results...`);
-			const topResults = searchResults.slice(0, 3);
+	if (searchResults.length > 0) {
+		console.log(`[DFINT] Scraping content from ${Math.min(3, searchResults.length)} top results...`);
+		const topResults = searchResults.slice(0, 3);
 
-			for (const result of topResults) {
-				try {
-					const scraped = await scrapeWebpage(result.url);
-					scrapedContent += `\n\n### ${result.title}\nSource: ${result.url}\n${scraped.content.slice(0, 500)}...\n`;
-					console.log(`[DFINT] Successfully scraped ${result.url}`);
-				} catch (error: any) {
-					console.warn(`[DFINT] Failed to scrape ${result.url}: ${error.message}`);
-				}
+		for (const result of topResults) {
+			try {
+				const scraped = await scrapeWebpage(result.url);
+				scrapedContent += `\n\n### ${result.title}\nSource: ${result.url}\n${scraped.content.slice(0, 500)}...\n`;
+				console.log(`[DFINT] Successfully scraped ${result.url}`);
+			} catch (error: any) {
+				console.warn(`[DFINT] Failed to scrape ${result.url}: ${error.message}`);
 			}
-		} else {
-			console.log(`[DFINT] No results from search engines. Falling back to AI-only search.`);
 		}
 	} else {
-		console.log(`[DFINT] Using AI-powered search only (no web scraping)`);
+		console.log(`[DFINT] No results from search engines. Falling back to AI-only search.`);
 	}
 
-	const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
-	if (!apiKey) {
-		throw new Error('Missing API key: set GOOGLE_API_KEY (preferred) or GEMINI_API_KEY');
-	}
+	return { searchResults, scrapedContent };
+}
 
-	const ai = new GoogleGenAI({
-		apiKey,
-	});
-
+function createDfintConfig(depth: string, includeNews: boolean, includeImages: boolean, maxResults: number): any {
 	let thinkingBudget = 0;
 	if (depth === 'deep') {
 		thinkingBudget = 10000;
@@ -88,10 +65,8 @@ export async function DFINT(
 
 	const tools = [{ codeExecution: {}, googleSearch: {} }];
 
-	const config = {
-		thinkingConfig: {
-			thinkingBudget,
-		},
+	return {
+		thinkingConfig: { thinkingBudget },
 		tools,
 		systemInstruction: [
 			{
@@ -105,9 +80,18 @@ Maximum results: ${maxResults}`,
 			},
 		],
 	};
+}
 
-	const model = 'gemini-flash-latest';
-
+function buildDfintPrompt(
+	query: string,
+	depth: string,
+	includeImages: boolean,
+	includeNews: boolean,
+	maxResults: number,
+	scrapedContent: string,
+	searchResults: SearchResult[],
+	engines: Array<'google' | 'bing' | 'duckduckgo' | 'yahoo'>,
+): string {
 	const includeImagesLine = includeImages ? 'Include images.\n' : '';
 	const includeNewsLine = includeNews ? 'Include news.\n' : '';
 	const scrapedSection = scrapedContent ? `Scraped content:\n${scrapedContent}\n\n` : '';
@@ -116,22 +100,20 @@ Maximum results: ${maxResults}`,
 			? `Results from ${engines.join(', ')}:\n${searchResults.map((r) => `- ${r.title} (${r.url})\n  ${r.snippet}`).join('\n\n')}\n\n`
 			: '';
 
-	const searchPrompt = `Conduct digital footprint intelligence on: "${query}"
+	return `Conduct digital footprint intelligence on: "${query}"
 	
 Depth: ${depth}
 ${includeImagesLine}${includeNewsLine}Max results: ${maxResults}
 
 ${scrapedSection}${resultsSection}
 Provide organized, actionable intelligence.`;
+}
 
+async function executeDfintQuery(ai: GoogleGenAI, config: any, searchPrompt: string, model: string): Promise<string> {
 	const contents = [
 		{
 			role: 'user',
-			parts: [
-				{
-					text: searchPrompt,
-				},
-			],
+			parts: [{ text: searchPrompt }],
 		},
 	];
 
@@ -140,11 +122,7 @@ Provide organized, actionable intelligence.`;
 
 	for (let attempt = 1; attempt <= maxRetries; attempt++) {
 		try {
-			const response = await ai.models.generateContentStream({
-				model,
-				config,
-				contents,
-			});
+			const response = await ai.models.generateContentStream({ model, config, contents });
 
 			let resultText = '';
 			let codeOutput = '';
@@ -191,6 +169,56 @@ Provide organized, actionable intelligence.`;
 	}
 
 	throw new Error('DFINT service is currently experiencing issues. Please try again later.');
+}
+
+export async function DFINT(
+	query: string,
+	options?: {
+		depth?: 'shallow' | 'moderate' | 'deep';
+		includeImages?: boolean;
+		includeNews?: boolean;
+		maxResults?: number;
+		engines?: Array<'google' | 'bing' | 'duckduckgo' | 'yahoo'>;
+		scrapeResults?: boolean;
+	},
+): Promise<string> {
+	const depth = options?.depth || 'moderate';
+	const includeImages = options?.includeImages || false;
+	const includeNews = options?.includeNews || false;
+	const maxResults = options?.maxResults || 10;
+	const engines = options?.engines || (options?.scrapeResults ? ['google', 'bing', 'duckduckgo', 'yahoo'] : []);
+	const scrapeResults = options?.scrapeResults || false;
+
+	let searchResults: SearchResult[] = [];
+	let scrapedContent = '';
+
+	if (scrapeResults && engines.length > 0) {
+		const scraped = await performWebScraping(query, engines, maxResults);
+		searchResults = scraped.searchResults;
+		scrapedContent = scraped.scrapedContent;
+	} else {
+		console.log(`[DFINT] Using AI-powered search only (no web scraping)`);
+	}
+
+	const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+	if (!apiKey) {
+		throw new Error('Missing API key: set GOOGLE_API_KEY (preferred) or GEMINI_API_KEY');
+	}
+
+	const ai = new GoogleGenAI({ apiKey });
+	const config = createDfintConfig(depth, includeNews, includeImages, maxResults);
+	const searchPrompt = buildDfintPrompt(
+		query,
+		depth,
+		includeImages,
+		includeNews,
+		maxResults,
+		scrapedContent,
+		searchResults,
+		engines,
+	);
+
+	return await executeDfintQuery(ai, config, searchPrompt, 'gemini-flash-latest');
 }
 
 export async function performSearch(query: string, type: 'web' | 'images' | 'news', limit?: number): Promise<string> {
