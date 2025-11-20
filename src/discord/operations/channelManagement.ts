@@ -226,6 +226,64 @@ function buildEmbedAuthor(author: any): Record<string, any> | null {
 	return normalizedAuthor;
 }
 
+function processEmbedDescription(description?: string): {
+	description: string | null;
+	fields: Array<{ name: string; value: string; inline?: boolean }>;
+} {
+	let normalizedDescription = setString(description);
+	let extractedFieldsFromDescription: Array<{ name: string; value: string; inline?: boolean }> = [];
+
+	if (normalizedDescription) {
+		const { cleaned, fields } = extractFieldsFromDescription(normalizedDescription);
+		normalizedDescription = cleaned;
+		extractedFieldsFromDescription = fields;
+	}
+
+	return {
+		description: normalizedDescription ? clampString(normalizedDescription, 4096) : null,
+		fields: extractedFieldsFromDescription,
+	};
+}
+
+function addEmbedMedia(embed: any, params: { image?: string; thumbnail?: string }): void {
+	if (params.image) {
+		const imageUrl = setString(params.image);
+		if (imageUrl) embed.image = { url: imageUrl };
+	}
+
+	if (params.thumbnail) {
+		const thumbnailUrl = setString(params.thumbnail);
+		if (thumbnailUrl) embed.thumbnail = { url: thumbnailUrl };
+	}
+}
+
+function addEmbedMetadata(
+	embed: any,
+	params: {
+		footer?: { text: string; iconUrl?: string };
+		author?: { name: string; iconUrl?: string; url?: string };
+		timestamp?: boolean;
+		url?: string;
+	},
+): void {
+	if (params.footer && typeof params.footer === 'object') {
+		const footerObj = buildEmbedFooter(params.footer);
+		if (footerObj) embed.footer = footerObj;
+	}
+
+	if (params.author && typeof params.author === 'object') {
+		const authorObj = buildEmbedAuthor(params.author);
+		if (authorObj) embed.author = authorObj;
+	}
+
+	if (params.timestamp) embed.timestamp = new Date().toISOString();
+
+	if (params.url) {
+		const normalizedUrl = setString(params.url);
+		if (normalizedUrl) embed.url = normalizedUrl;
+	}
+}
+
 function buildEmbed(params: {
 	title?: string;
 	description?: string;
@@ -243,18 +301,8 @@ function buildEmbed(params: {
 	const normalizedTitle = setString(params.title);
 	if (normalizedTitle) embed.title = clampString(normalizedTitle, 256);
 
-	let normalizedDescription = setString(params.description);
-	let extractedFieldsFromDescription: Array<{ name: string; value: string; inline?: boolean }> = [];
-
-	if (normalizedDescription) {
-		const { cleaned, fields } = extractFieldsFromDescription(normalizedDescription);
-		normalizedDescription = cleaned;
-		extractedFieldsFromDescription = fields;
-	}
-
-	if (normalizedDescription) {
-		embed.description = clampString(normalizedDescription, 4096);
-	}
+	const { description, fields: extractedFields } = processEmbedDescription(params.description);
+	if (description) embed.description = description;
 
 	if (params.color) {
 		const parsedColor = parseHexColor(params.color);
@@ -262,37 +310,13 @@ function buildEmbed(params: {
 	}
 
 	const normalizedFields = normalizeFields(params.fields);
-	if (extractedFieldsFromDescription.length > 0) {
-		normalizedFields.push(...extractedFieldsFromDescription);
+	if (extractedFields.length > 0) {
+		normalizedFields.push(...extractedFields);
 	}
 	if (normalizedFields.length > 0) embed.fields = normalizedFields;
 
-	if (params.footer && typeof params.footer === 'object') {
-		const footerObj = buildEmbedFooter(params.footer);
-		if (footerObj) embed.footer = footerObj;
-	}
-
-	if (params.image) {
-		const imageUrl = setString(params.image);
-		if (imageUrl) embed.image = { url: imageUrl };
-	}
-
-	if (params.thumbnail) {
-		const thumbnailUrl = setString(params.thumbnail);
-		if (thumbnailUrl) embed.thumbnail = { url: thumbnailUrl };
-	}
-
-	if (params.author && typeof params.author === 'object') {
-		const authorObj = buildEmbedAuthor(params.author);
-		if (authorObj) embed.author = authorObj;
-	}
-
-	if (params.timestamp) embed.timestamp = new Date().toISOString();
-
-	if (params.url) {
-		const normalizedUrl = setString(params.url);
-		if (normalizedUrl) embed.url = normalizedUrl;
-	}
+	addEmbedMetadata(embed, params);
+	addEmbedMedia(embed, params);
 
 	return embed;
 }
