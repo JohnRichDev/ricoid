@@ -90,6 +90,62 @@ function createExecutionContext(message?: Message, capturedOutput?: string[]) {
 	return createContext(context);
 }
 
+function wrapCode(code: string): string {
+	const trimmedCode = code.trim();
+	const hasMultipleStatements =
+		trimmedCode.includes('\n') ||
+		trimmedCode.includes(';') ||
+		trimmedCode.includes('return') ||
+		/^(const|let|var|if|for|while|function|class)\s/.test(trimmedCode);
+
+	if (hasMultipleStatements) {
+		return `(async () => { ${code} })()`;
+	}
+	return `(async () => { return ${code} })()`;
+}
+
+async function resolveResult(result: any): Promise<any> {
+	const isThenable =
+		result &&
+		(typeof result === 'object' || typeof result === 'function') &&
+		typeof (result as any).then === 'function';
+
+	if (isThenable) {
+		return await (result as any);
+	}
+	return result;
+}
+
+function formatResult(finalResult: any, capturedOutput: string[]): string {
+	if (finalResult === undefined && capturedOutput.length > 0) {
+		return capturedOutput.join('\n');
+	}
+
+	if (finalResult === undefined) {
+		return 'undefined';
+	}
+	if (finalResult === null) {
+		return 'null';
+	}
+	if (typeof finalResult === 'object') {
+		return JSON.stringify(finalResult, null, 2);
+	}
+	return String(finalResult);
+}
+
+function extractErrorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		return `${error.name}: ${error.message}`;
+	}
+	if (typeof error === 'string') {
+		return error;
+	}
+	if (error && typeof error === 'object') {
+		return JSON.stringify(error);
+	}
+	return String(error);
+}
+
 export async function executeCodeWithRetries(code: string, message?: Message): Promise<string> {
 	const maxRetries = 3;
 	let lastError = '';
@@ -98,63 +154,15 @@ export async function executeCodeWithRetries(code: string, message?: Message): P
 		try {
 			const capturedOutput: string[] = [];
 			const context = createExecutionContext(message, capturedOutput);
-
-			const trimmedCode = code.trim();
-			let wrappedCode: string;
-
-			const hasMultipleStatements =
-				trimmedCode.includes('\n') ||
-				trimmedCode.includes(';') ||
-				trimmedCode.includes('return') ||
-				/^(const|let|var|if|for|while|function|class)\s/.test(trimmedCode);
-
-			if (hasMultipleStatements) {
-				wrappedCode = `(async () => { ${code} })()`;
-			} else {
-				wrappedCode = `(async () => { return ${code} })()`;
-			}
-
+			const wrappedCode = wrapCode(code);
 			const script = new Script(wrappedCode);
 			const result = script.runInContext(context);
-
-			const isThenable =
-				result &&
-				(typeof result === 'object' || typeof result === 'function') &&
-				typeof (result as any).then === 'function';
-
-			let finalResult: any;
-			if (isThenable) {
-				finalResult = await (result as any);
-			} else {
-				finalResult = result;
-			}
-
-			if (finalResult === undefined && capturedOutput.length > 0) {
-				finalResult = capturedOutput.join('\n');
-			}
-
-			let resultStr: string;
-			if (finalResult === undefined) {
-				resultStr = 'undefined';
-			} else if (finalResult === null) {
-				resultStr = 'null';
-			} else if (typeof finalResult === 'object') {
-				resultStr = JSON.stringify(finalResult, null, 2);
-			} else {
-				resultStr = String(finalResult);
-			}
+			const finalResult = await resolveResult(result);
+			const resultStr = formatResult(finalResult, capturedOutput);
 
 			return `Code executed successfully. Result: ${resultStr}`;
 		} catch (error) {
-			if (error instanceof Error) {
-				lastError = `${error.name}: ${error.message}`;
-			} else if (typeof error === 'string') {
-				lastError = error;
-			} else if (error && typeof error === 'object') {
-				lastError = JSON.stringify(error);
-			} else {
-				lastError = String(error);
-			}
+			lastError = extractErrorMessage(error);
 
 			if (attempt < maxRetries) {
 				await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
