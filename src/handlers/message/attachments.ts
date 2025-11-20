@@ -83,26 +83,20 @@ export function summarizeAttachmentForInstructions(attachment: Attachment): stri
 	return `- ${name} (${mime}, ${size})`;
 }
 
-async function createAttachmentDataPart(
-	aiClient: GoogleGenAI,
-	attachment: Attachment,
-	mimeTypeHint: string | null,
-): Promise<ConversationPart | null> {
+async function downloadAttachment(attachment: Attachment): Promise<Buffer | { text: string }> {
 	const name = attachment.name || 'attachment';
-	if (typeof attachment.size === 'number' && attachment.size > MAX_ATTACHMENT_BYTES) {
-		return {
-			text: `Attachment ${name} exceeds the ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)} processing limit.`,
-		};
-	}
+
 	let url: URL;
 	try {
 		url = new URL(attachment.url);
 	} catch {
 		return { text: `Attachment ${name} has an invalid URL.` };
 	}
+
 	if (url.protocol !== 'https:' && url.protocol !== 'http:') {
 		return { text: `Attachment ${name} uses an unsupported protocol.` };
 	}
+
 	let response: Response;
 	try {
 		response = await fetch(url.toString());
@@ -110,9 +104,11 @@ async function createAttachmentDataPart(
 		const reason = error instanceof Error ? error.message : 'unknown error';
 		return { text: `Attachment ${name} could not be downloaded (${reason}).` };
 	}
+
 	if (!response.ok) {
 		return { text: `Attachment ${name} download failed with status ${response.status}.` };
 	}
+
 	let buffer: Buffer;
 	try {
 		const arrayBuffer = await response.arrayBuffer();
@@ -121,31 +117,29 @@ async function createAttachmentDataPart(
 		const reason = error instanceof Error ? error.message : 'unknown error';
 		return { text: `Attachment ${name} data could not be read (${reason}).` };
 	}
+
 	if (buffer.length === 0) {
 		return { text: `Attachment ${name} is empty.` };
 	}
-	let mimeType = mimeTypeHint || response.headers.get('content-type') || 'application/octet-stream';
-	if (buffer.length <= INLINE_ATTACHMENT_LIMIT_BYTES) {
-		return {
-			inlineData: {
-				mimeType,
-				data: buffer.toString('base64'),
-			},
-		};
-	}
-	if (aiClient.vertexai) {
-		return {
-			text: `Attachment ${name} is ${formatAttachmentSize(buffer.length)} and requires upload, which is unavailable in Vertex AI mode.`,
-		};
-	}
+
+	return buffer;
+}
+
+async function uploadAttachment(
+	aiClient: GoogleGenAI,
+	buffer: Buffer,
+	mimeType: string,
+	attachment: Attachment,
+): Promise<ConversationPart> {
+	const name = attachment.name || 'attachment';
 	const blob = new Blob([buffer], { type: mimeType });
+
 	try {
 		const uploaded = await aiClient.files.upload({
 			file: blob,
-			config: {
-				mimeType,
-			},
+			config: { mimeType },
 		});
+
 		if (uploaded.uri) {
 			return {
 				fileData: {
@@ -160,6 +154,47 @@ async function createAttachmentDataPart(
 		const reason = error instanceof Error ? error.message : 'unknown error';
 		return { text: `Attachment ${name} could not be uploaded (${reason}).` };
 	}
+}
+
+async function createAttachmentDataPart(
+	aiClient: GoogleGenAI,
+	attachment: Attachment,
+	mimeTypeHint: string | null,
+): Promise<ConversationPart | null> {
+	const name = attachment.name || 'attachment';
+
+	if (typeof attachment.size === 'number' && attachment.size > MAX_ATTACHMENT_BYTES) {
+		return {
+			text: `Attachment ${name} exceeds the ${formatAttachmentSize(MAX_ATTACHMENT_BYTES)} processing limit.`,
+		};
+	}
+
+	const downloadResult = await downloadAttachment(attachment);
+
+	if (!Buffer.isBuffer(downloadResult)) {
+		return downloadResult;
+	}
+
+	const buffer = downloadResult;
+	const response = await fetch(attachment.url);
+	let mimeType = mimeTypeHint || response.headers.get('content-type') || 'application/octet-stream';
+
+	if (buffer.length <= INLINE_ATTACHMENT_LIMIT_BYTES) {
+		return {
+			inlineData: {
+				mimeType,
+				data: buffer.toString('base64'),
+			},
+		};
+	}
+
+	if (aiClient.vertexai) {
+		return {
+			text: `Attachment ${name} is ${formatAttachmentSize(buffer.length)} and requires upload, which is unavailable in Vertex AI mode.`,
+		};
+	}
+
+	return await uploadAttachment(aiClient, buffer, mimeType, attachment);
 }
 
 export async function addAttachmentParts(
