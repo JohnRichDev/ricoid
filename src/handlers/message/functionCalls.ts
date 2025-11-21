@@ -297,6 +297,81 @@ type ProcessFunctionCallParams = {
 	sequenceCounterRef: { current: number };
 };
 
+function findLogEntryIndex(executionLog: FunctionExecutionLogEntry[], callName: string, callSignature: string): number {
+	let index = executionLog.findIndex((e) => {
+		if (e.name !== callName || e.status !== 'pending') return false;
+		const entrySignature = createCallSignature(e.name, e.args);
+		return entrySignature === callSignature;
+	});
+
+	if (index < 0) {
+		index = executionLog.findIndex(
+			(e) => e.name === callName && e.status === 'pending' && e.args && (e.args as any).__planned === true,
+		);
+	}
+
+	return index;
+}
+
+function normalizeCallArgs(call: any, message: Message): any {
+	const clonedArgs =
+		typeof call.args === 'object' && call.args !== null && !Array.isArray(call.args) ? { ...call.args } : call.args;
+	return normalizeChannelArgs(clonedArgs, message.channelId, message.guildId || '', call.name);
+}
+
+function handleExecutionError(
+	error: unknown,
+	call: any,
+	message: Message,
+	functionResults: Array<{ name: string; result: any }>,
+	allFunctionResults: Array<{ name: string; result: any }>,
+	executionLog: FunctionExecutionLogEntry[],
+	logEntryIndex: number,
+	callSignature: string | null,
+	executedCallCache: Map<string, any>,
+	sequenceCounterRef: { current: number },
+): void {
+	if (!call.name) return;
+
+	const errorResult = { error: error instanceof Error ? error.message : 'Unknown error' };
+	functionResults.push({ name: call.name, result: errorResult });
+	allFunctionResults.push({ name: call.name, result: errorResult });
+
+	if (callSignature) {
+		executedCallCache.set(callSignature, errorResult);
+	}
+
+	logFunctionAction(message, 'execute-error', { name: call.name, error: errorResult });
+
+	if (logEntryIndex >= 0) {
+		markEntryResult(executionLog[logEntryIndex], 'error', errorResult, sequenceCounterRef);
+	} else {
+		pushLogEntry(executionLog, {
+			name: call.name,
+			args: call.args ?? null,
+			status: 'error',
+			result: errorResult,
+			sequence: sequenceCounterRef.current++,
+		});
+	}
+}
+
+function handleSkippedEntry(
+	call: any,
+	executionLog: FunctionExecutionLogEntry[],
+	logEntryIndex: number,
+	functionResults: Array<{ name: string; result: any }>,
+	allFunctionResults: Array<{ name: string; result: any }>,
+	message: Message,
+): void {
+	if (logEntryIndex >= 0 && executionLog[logEntryIndex].status === 'skipped') {
+		const skippedInfo = executionLog[logEntryIndex].result ?? 'Skipped';
+		functionResults.push({ name: call.name, result: skippedInfo });
+		allFunctionResults.push({ name: call.name, result: skippedInfo });
+		logFunctionAction(message, 'post-process-skip', { name: call.name, info: skippedInfo });
+	}
+}
+
 export async function processFunctionCall(params: ProcessFunctionCallParams): Promise<void> {
 	const {
 		call,
@@ -312,24 +387,17 @@ export async function processFunctionCall(params: ProcessFunctionCallParams): Pr
 		newChannelIdRef,
 		sequenceCounterRef,
 	} = params;
+
 	let callSignature: string | null = null;
 	let logEntryIndex: number = -1;
+
 	try {
 		if (!call.args || !call.name) return;
-		const clonedArgs =
-			typeof call.args === 'object' && call.args !== null && !Array.isArray(call.args) ? { ...call.args } : call.args;
-		const normalizedArgs = normalizeChannelArgs(clonedArgs, message.channelId, message.guildId || '', call.name);
+
+		const normalizedArgs = normalizeCallArgs(call, message);
 		callSignature = createCallSignature(call.name, normalizedArgs);
-		logEntryIndex = executionLog.findIndex((e) => {
-			if (e.name !== call.name) return false;
-			if (e.status !== 'pending') return false;
-			const entrySignature = createCallSignature(e.name, e.args);
-			return entrySignature === callSignature;
-		});
-		if (logEntryIndex < 0)
-			logEntryIndex = executionLog.findIndex(
-				(e) => e.name === call.name && e.status === 'pending' && e.args && (e.args as any).__planned === true,
-			);
+		logEntryIndex = findLogEntryIndex(executionLog, call.name, callSignature);
+
 		const handler = (functionHandlers as any)[call.name];
 		if (!handler) {
 			handleMissingHandler(
@@ -344,8 +412,10 @@ export async function processFunctionCall(params: ProcessFunctionCallParams): Pr
 			await updateChecklistEmbed(checklistMessage, executionLog);
 			return;
 		}
+
 		const attemptCount = (functionAttemptCounts.get(call.name) ?? 0) + 1;
 		functionAttemptCounts.set(call.name, attemptCount);
+
 		if (
 			handleScreenshotRepeat(
 				call,
@@ -361,6 +431,7 @@ export async function processFunctionCall(params: ProcessFunctionCallParams): Pr
 			await updateChecklistEmbed(checklistMessage, executionLog);
 			return;
 		}
+
 		if (
 			handleSingleExecutionSkip(
 				call,
@@ -378,6 +449,7 @@ export async function processFunctionCall(params: ProcessFunctionCallParams): Pr
 			await updateChecklistEmbed(checklistMessage, executionLog);
 			return;
 		}
+
 		if (
 			handleSignatureDuplicateSkip(
 				call,
@@ -396,6 +468,7 @@ export async function processFunctionCall(params: ProcessFunctionCallParams): Pr
 			await updateChecklistEmbed(checklistMessage, executionLog);
 			return;
 		}
+
 		setOperationContext({ message, userId: message.author.id, channelId: message.channelId });
 		try {
 			await executeFunction(
@@ -419,32 +492,23 @@ export async function processFunctionCall(params: ProcessFunctionCallParams): Pr
 			clearOperationContext();
 		}
 	} catch (error) {
-		if (call.name) {
-			const errorResult = { error: error instanceof Error ? error.message : 'Unknown error' };
-			functionResults.push({ name: call.name, result: errorResult });
-			allFunctionResults.push({ name: call.name, result: errorResult });
-			if (callSignature) executedCallCache.set(callSignature, errorResult);
-			logFunctionAction(message, 'execute-error', { name: call.name, error: errorResult });
-			if (logEntryIndex >= 0) markEntryResult(executionLog[logEntryIndex], 'error', errorResult, sequenceCounterRef);
-			else
-				pushLogEntry(executionLog, {
-					name: call.name,
-					args: call.args ?? null,
-					status: 'error',
-					result: errorResult,
-					sequence: sequenceCounterRef.current++,
-				});
-			await updateChecklistEmbed(checklistMessage, executionLog);
-		}
-	}
-
-	if (logEntryIndex >= 0 && executionLog[logEntryIndex].status === 'skipped') {
-		const skippedInfo = executionLog[logEntryIndex].result ?? 'Skipped';
-		functionResults.push({ name: call.name, result: skippedInfo });
-		allFunctionResults.push({ name: call.name, result: skippedInfo });
-		logFunctionAction(message, 'post-process-skip', { name: call.name, info: skippedInfo });
+		handleExecutionError(
+			error,
+			call,
+			message,
+			functionResults,
+			allFunctionResults,
+			executionLog,
+			logEntryIndex,
+			callSignature,
+			executedCallCache,
+			sequenceCounterRef,
+		);
 		await updateChecklistEmbed(checklistMessage, executionLog);
 	}
+
+	handleSkippedEntry(call, executionLog, logEntryIndex, functionResults, allFunctionResults, message);
+	await updateChecklistEmbed(checklistMessage, executionLog);
 }
 export async function processFunctionCalls(
 	response: any,
