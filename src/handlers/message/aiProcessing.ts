@@ -226,6 +226,183 @@ async function generateAIContent(
 
 	throw lastError;
 }
+
+async function generatePlanningPrompt(latestUserMessage: string, availableFns: string[]): Promise<string> {
+	return `Analyze this request and list ALL function calls you will need to make, in the exact order you'll execute them.
+
+Available tools: ${availableFns.join(', ')}
+
+Request: "${latestUserMessage}"
+
+Think through the COMPLETE workflow:
+- If creating multiple items (channels, roles, etc.), list each creation separately
+- If setting permissions on multiple channels, list each setChannelPermissions call
+- Include the final message/response function if needed
+- Count all steps: if user asks for 3 channels + 1 role + permissions on 3 channels + 1 message = that's 8+ function calls minimum
+
+Rules:
+- Use createEmbed for rich formatting/embeds
+- Use sendDiscordMessage for final messages
+- Avoid executeCode unless user explicitly wants custom code
+- List EVERY function call, don't summarize
+
+Respond with ONLY a JSON array of function names in execution order, e.g., ["createCategory","createChannel","createChannel","createChannel","createRole","setChannelPermissions","setChannelPermissions","setChannelPermissions","sendDiscordMessage"]`;
+}
+
+function parsePlanResponse(planText: string): string[] {
+	try {
+		const parsed = JSON.parse(planText);
+		if (Array.isArray(parsed)) {
+			return parsed.filter((n) => typeof n === 'string');
+		}
+	} catch {}
+	return [];
+}
+
+function detectUserIntent(latestUserMessage: string): { wantsEmbedOrFormatting: boolean; wantSearch: boolean } {
+	const wantsEmbedOrFormatting =
+		/\b(embed|rich\s*embed|format(?:ted|ting)?|layout|table|grid|card|presentation|styled)\b/i.test(latestUserMessage);
+	const wantSearch = /\bsearch|news|find|look up/i.test(latestUserMessage);
+	return { wantsEmbedOrFormatting, wantSearch };
+}
+
+function enrichPlanWithIntent(planList: string[], wantsEmbedOrFormatting: boolean, wantSearch: boolean): string[] {
+	if (wantSearch && !planList.includes('search')) {
+		planList.unshift('search');
+	}
+	if (wantsEmbedOrFormatting) {
+		if (!planList.includes('createEmbed')) planList.push('createEmbed');
+		if (!planList.includes('sendDiscordMessage')) planList.push('sendDiscordMessage');
+	}
+	return Array.from(new Set(planList));
+}
+
+function logActionPlan(
+	message: any,
+	planList: string[],
+	wantsEmbedOrFormatting: boolean,
+	wantSearch: boolean,
+	latestUserMessage: string,
+): void {
+	if (planList.length) {
+		const planLogEntry = {
+			messageId: message?.id ?? 'unknown',
+			userId: message?.author?.id ?? 'unknown',
+			plan: planList,
+			flags: { structured: wantsEmbedOrFormatting, search: wantSearch },
+			requestPreview: latestUserMessage.slice(0, 140),
+		};
+		console.log(`[ActionPlan] ${JSON.stringify(planLogEntry)}`);
+	}
+}
+
+function populateExecutionLog(planList: string[], executionLog: FunctionExecutionLogEntry[]): void {
+	for (const name of planList) {
+		if (!functionHandlers[name]) continue;
+		if (SINGLE_EXECUTION_FUNCTIONS.has(name) && executionLog.some((e) => e.name === name)) continue;
+		executionLog.push({
+			name,
+			args: { __planned: true },
+			status: 'pending',
+			result: null,
+			plannedOrder: executionLog.length,
+		});
+	}
+}
+
+async function createInitialChecklist(
+	message: any,
+	executionLog: FunctionExecutionLogEntry[],
+	checklistMessageRef: { current: any },
+): Promise<void> {
+	if (shouldShowChecklist(executionLog)) {
+		const embed = createChecklistEmbed(executionLog);
+		checklistMessageRef.current = await message.reply({ embeds: [embed], allowedMentions: { parse: [] } });
+		await new Promise((r) => setTimeout(r, 300));
+	}
+}
+
+async function initializePlanningPhase(
+	aiClient: GoogleGenAI,
+	latestUserMessage: string,
+	message: any,
+	executionLog: FunctionExecutionLogEntry[],
+	checklistMessageRef: { current: any },
+): Promise<void> {
+	const availableFns = Object.keys(functionHandlers);
+	const planningPrompt = await generatePlanningPrompt(latestUserMessage, availableFns);
+
+	const planResp = await aiClient.models.generateContent({
+		model: 'gemini-flash-latest',
+		contents: [{ role: 'user', parts: [{ text: planningPrompt }] }],
+	});
+
+	const planText = planResp.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '[]';
+	let planList = parsePlanResponse(planText);
+
+	const { wantsEmbedOrFormatting, wantSearch } = detectUserIntent(latestUserMessage);
+	planList = enrichPlanWithIntent(planList, wantsEmbedOrFormatting, wantSearch);
+
+	logActionPlan(message, planList, wantsEmbedOrFormatting, wantSearch, latestUserMessage);
+	populateExecutionLog(planList, executionLog);
+	await createInitialChecklist(message, executionLog, checklistMessageRef);
+}
+
+function buildCompletionSummary(executionLog: FunctionExecutionLogEntry[], maxRounds: number): string {
+	const completedActions = executionLog
+		.filter((e) => e.status === 'success')
+		.map((e) => {
+			let resultPreview: string;
+			if (typeof e.result === 'string') {
+				resultPreview = e.result.length > 100 ? `${e.result.slice(0, 100)}...` : e.result;
+			} else {
+				resultPreview = JSON.stringify(e.result).slice(0, 100);
+			}
+			return `✅ **${e.name}**: ${resultPreview}`;
+		});
+
+	const failedActions = executionLog
+		.filter((e) => e.status === 'error')
+		.map((e) => {
+			const errorMsg =
+				typeof e.result === 'object' && e.result?.error ? e.result.error : String(e.result || 'Unknown error');
+			return `❌ **${e.name}**: ${errorMsg}`;
+		});
+
+	const skippedActions = executionLog.filter((e) => e.status === 'skipped' || e.status === 'pending').length;
+
+	const summary: string[] = [
+		`⚠️ Hit processing limit (${maxRounds} rounds). Here's what completed:`,
+		'',
+		'**Completed:**',
+		...completedActions,
+	];
+
+	if (failedActions.length > 0) {
+		summary.push('', '**Failed:**', ...failedActions);
+	}
+
+	if (skippedActions > 0) {
+		summary.push('', `**Skipped:** ${skippedActions} operation(s) not completed`);
+	}
+
+	return summary.join('\n');
+}
+
+async function finalizeChecklistIfNeeded(
+	executionLog: FunctionExecutionLogEntry[],
+	checklistMessageRef: { current: any },
+	sequenceCounterRef: { current: number },
+): Promise<void> {
+	const finalizedPending = finalizePendingEntries(executionLog, sequenceCounterRef);
+	if (finalizedPending && checklistMessageRef.current) {
+		try {
+			const embed = createChecklistEmbed(executionLog);
+			await checklistMessageRef.current.edit({ embeds: [embed] });
+		} catch {}
+	}
+}
+
 export async function processAIResponse(
 	aiClient: GoogleGenAI,
 	modelName: string,
@@ -249,77 +426,13 @@ export async function processAIResponse(
 	const executionLog: FunctionExecutionLogEntry[] = [];
 	const sequenceCounterRef = { current: 1 };
 	const loopGuardRef = { current: 0 };
+
 	try {
 		if (!checklistMessageRef.current) {
-			const availableFns = Object.keys(functionHandlers);
-			const planningPrompt = `Analyze this request and list ALL function calls you will need to make, in the exact order you'll execute them.
-
-Available tools: ${availableFns.join(', ')}
-
-Request: "${latestUserMessage}"
-
-Think through the COMPLETE workflow:
-- If creating multiple items (channels, roles, etc.), list each creation separately
-- If setting permissions on multiple channels, list each setChannelPermissions call
-- Include the final message/response function if needed
-- Count all steps: if user asks for 3 channels + 1 role + permissions on 3 channels + 1 message = that's 8+ function calls minimum
-
-Rules:
-- Use createEmbed for rich formatting/embeds
-- Use sendDiscordMessage for final messages
-- Avoid executeCode unless user explicitly wants custom code
-- List EVERY function call, don't summarize
-
-Respond with ONLY a JSON array of function names in execution order, e.g., ["createCategory","createChannel","createChannel","createChannel","createRole","setChannelPermissions","setChannelPermissions","setChannelPermissions","sendDiscordMessage"]`;
-			const planResp = await aiClient.models.generateContent({
-				model: 'gemini-flash-latest',
-				contents: [{ role: 'user', parts: [{ text: planningPrompt }] }],
-			});
-			const planText = planResp.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '[]';
-			let planList: string[] = [];
-			try {
-				const parsed = JSON.parse(planText);
-				if (Array.isArray(parsed)) planList = parsed.filter((n) => typeof n === 'string');
-			} catch {}
-			const wantsEmbedOrFormatting =
-				/\b(embed|rich\s*embed|format(?:ted|ting)?|layout|table|grid|card|presentation|styled)\b/i.test(
-					latestUserMessage,
-				);
-			const wantSearch = /\bsearch|news|find|look up/i.test(latestUserMessage);
-			if (wantSearch && !planList.includes('search')) planList.unshift('search');
-			if (wantsEmbedOrFormatting) {
-				if (!planList.includes('createEmbed')) planList.push('createEmbed');
-				if (!planList.includes('sendDiscordMessage')) planList.push('sendDiscordMessage');
-			}
-			planList = Array.from(new Set(planList));
-			if (planList.length) {
-				const planLogEntry = {
-					messageId: message?.id ?? 'unknown',
-					userId: message?.author?.id ?? 'unknown',
-					plan: planList,
-					flags: { structured: wantsEmbedOrFormatting, search: wantSearch },
-					requestPreview: latestUserMessage.slice(0, 140),
-				};
-				console.log(`[ActionPlan] ${JSON.stringify(planLogEntry)}`);
-			}
-			for (const name of planList) {
-				if (!functionHandlers[name]) continue;
-				if (SINGLE_EXECUTION_FUNCTIONS.has(name) && executionLog.some((e) => e.name === name)) continue;
-				executionLog.push({
-					name,
-					args: { __planned: true },
-					status: 'pending',
-					result: null,
-					plannedOrder: executionLog.length,
-				});
-			}
-			if (shouldShowChecklist(executionLog)) {
-				const embed = createChecklistEmbed(executionLog);
-				checklistMessageRef.current = await message.reply({ embeds: [embed], allowedMentions: { parse: [] } });
-				await new Promise((r) => setTimeout(r, 300));
-			}
+			await initializePlanningPhase(aiClient, latestUserMessage, message, executionLog, checklistMessageRef);
 		}
 	} catch {}
+
 	while (round < maxRounds) {
 		round++;
 		const { hasMoreFunctionCalls, responseText: currentResponseText } = await generateAIContent(
@@ -337,57 +450,23 @@ Respond with ONLY a JSON array of function names in execution order, e.g., ["cre
 			loopGuardRef,
 			sequenceCounterRef,
 		);
+
 		if (!hasMoreFunctionCalls) {
 			responseText = currentResponseText;
 			break;
 		}
 	}
+
 	if (round >= maxRounds) {
-		const completedActions = executionLog
-			.filter((e) => e.status === 'success')
-			.map((e) => {
-				let resultPreview: string;
-				if (typeof e.result === 'string') {
-					if (e.result.length > 100) {
-						resultPreview = `${e.result.slice(0, 100)}...`;
-					} else {
-						resultPreview = e.result;
-					}
-				} else {
-					resultPreview = JSON.stringify(e.result).slice(0, 100);
-				}
-				return `✅ **${e.name}**: ${resultPreview}`;
-			});
-		const failedActions = executionLog
-			.filter((e) => e.status === 'error')
-			.map((e) => {
-				const errorMsg =
-					typeof e.result === 'object' && e.result?.error ? e.result.error : String(e.result || 'Unknown error');
-				return `❌ **${e.name}**: ${errorMsg}`;
-			});
-		const skippedActions = executionLog.filter((e) => e.status === 'skipped' || e.status === 'pending').length;
-		const summary: string[] = [
-			`⚠️ Hit processing limit (${maxRounds} rounds). Here's what completed:`,
-			'',
-			'**Completed:**',
-			...completedActions,
-		];
-		if (failedActions.length > 0) {
-			summary.push('', '**Failed:**', ...failedActions);
-		}
-		if (skippedActions > 0) {
-			summary.push('', `**Skipped:** ${skippedActions} operation(s) not completed`);
-		}
-		responseText = summary.join('\n');
+		responseText = buildCompletionSummary(executionLog, maxRounds);
 	}
-	const finalizedPending = finalizePendingEntries(executionLog, sequenceCounterRef);
-	if (finalizedPending && checklistMessageRef.current) {
-		try {
-			const embed = createChecklistEmbed(executionLog);
-			await checklistMessageRef.current.edit({ embeds: [embed] });
-		} catch {}
+
+	await finalizeChecklistIfNeeded(executionLog, checklistMessageRef, sequenceCounterRef);
+
+	if (!responseText.trim()) {
+		responseText = await generateFallbackResponse(aiClient, latestUserMessage);
 	}
-	if (!responseText.trim()) responseText = await generateFallbackResponse(aiClient, latestUserMessage);
+
 	return { responseText, allFunctionResults, executionLog };
 }
 export { generateFallbackResponse };
