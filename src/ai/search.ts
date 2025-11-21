@@ -109,6 +109,62 @@ ${scrapedSection}${resultsSection}
 Provide organized, actionable intelligence.`;
 }
 
+async function processStreamChunk(
+	chunk: any,
+	resultText: string,
+	codeOutput: string,
+): Promise<{ resultText: string; codeOutput: string }> {
+	if (!chunk.candidates?.[0]?.content?.parts) {
+		return { resultText, codeOutput };
+	}
+
+	const part = chunk.candidates[0].content.parts[0];
+
+	if (part.text) {
+		resultText += part.text;
+	}
+
+	if (part.executableCode) {
+		console.log('[DFINT] Code executed:', part.executableCode);
+	}
+
+	if (part.codeExecutionResult) {
+		codeOutput += JSON.stringify(part.codeExecutionResult);
+	}
+
+	return { resultText, codeOutput };
+}
+
+async function executeDfintStreamRequest(
+	ai: GoogleGenAI,
+	model: string,
+	config: any,
+	contents: any[],
+): Promise<string> {
+	const response = await ai.models.generateContentStream({ model, config, contents });
+
+	let resultText = '';
+	let codeOutput = '';
+
+	for await (const chunk of response) {
+		const result = await processStreamChunk(chunk, resultText, codeOutput);
+		resultText = result.resultText;
+		codeOutput = result.codeOutput;
+	}
+
+	const finalResult = resultText || codeOutput || 'No intelligence gathered for the specified query.';
+	return `🔍 **DFINT Report**\n\n${finalResult}`;
+}
+
+function isDfintRetriable(error: any): boolean {
+	const statusCode = error?.status || 0;
+	return statusCode === 500 || statusCode === 502 || statusCode === 503 || statusCode === 504;
+}
+
+function extractDfintError(error: any): string {
+	return error?.message || error?.error?.message || 'Unknown error';
+}
+
 async function executeDfintQuery(ai: GoogleGenAI, config: any, searchPrompt: string, model: string): Promise<string> {
 	const contents = [
 		{
@@ -122,38 +178,9 @@ async function executeDfintQuery(ai: GoogleGenAI, config: any, searchPrompt: str
 
 	for (let attempt = 1; attempt <= maxRetries; attempt++) {
 		try {
-			const response = await ai.models.generateContentStream({ model, config, contents });
-
-			let resultText = '';
-			let codeOutput = '';
-
-			for await (const chunk of response) {
-				if (!chunk.candidates || !chunk.candidates[0].content || !chunk.candidates[0].content.parts) {
-					continue;
-				}
-
-				const part = chunk.candidates[0].content.parts[0];
-
-				if (part.text) {
-					resultText += part.text;
-				}
-
-				if (part.executableCode) {
-					console.log('[DFINT] Code executed:', part.executableCode);
-				}
-
-				if (part.codeExecutionResult) {
-					codeOutput += JSON.stringify(part.codeExecutionResult);
-				}
-			}
-
-			const finalResult = resultText || codeOutput || 'No intelligence gathered for the specified query.';
-			return `🔍 **DFINT Report**\n\n${finalResult}`;
+			return await executeDfintStreamRequest(ai, model, config, contents);
 		} catch (error: any) {
-			const statusCode = error?.status || 0;
-			const isRetriable = statusCode === 500 || statusCode === 502 || statusCode === 503 || statusCode === 504;
-
-			if (isRetriable && attempt < maxRetries) {
+			if (isDfintRetriable(error) && attempt < maxRetries) {
 				const delay = baseRetryDelay * Math.pow(2, attempt - 1);
 				console.log(`[DFINT] Search failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`);
 				await new Promise((resolve) => setTimeout(resolve, delay));
@@ -161,7 +188,7 @@ async function executeDfintQuery(ai: GoogleGenAI, config: any, searchPrompt: str
 			}
 
 			console.error('[DFINT] Search error:', error);
-			const errorMessage = error?.message || error?.error?.message || 'Unknown error';
+			const errorMessage = extractDfintError(error);
 			throw new Error(
 				`DFINT temporarily unavailable (server error). Please try again in a moment. Details: ${errorMessage}`,
 			);
