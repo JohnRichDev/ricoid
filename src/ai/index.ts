@@ -1686,6 +1686,488 @@ export function createAITools() {
 					required: ['url', 'description'],
 				},
 			},
+			{
+				name: 'bulkEditMessages',
+				description: 'Edit multiple bot messages at once with new content',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						channel: { type: Type.STRING, description: 'Channel name or ID' },
+						messageIds: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'Array of message IDs to edit' },
+						newContent: { type: Type.STRING, description: 'New content for all messages' },
+					},
+					required: ['channel', 'messageIds', 'newContent'],
+				},
+			},
+			{
+				name: 'searchMessages',
+				description: 'Search messages in a channel by content, author, or date range',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						channel: { type: Type.STRING, description: 'Channel name or ID' },
+						query: { type: Type.STRING, description: 'Text to search for in messages' },
+						author: { type: Type.STRING, description: 'Filter by author username' },
+						limit: { type: Type.NUMBER, description: 'Max results (default 100)' },
+					},
+					required: ['channel'],
+				},
+			},
+			{
+				name: 'pinAllMessages',
+				description: 'Pin multiple messages based on criteria (reactions, author, content)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						channel: { type: Type.STRING, description: 'Channel name or ID' },
+						minReactions: { type: Type.NUMBER, description: 'Minimum reaction count' },
+						authorId: { type: Type.STRING, description: 'Filter by author ID' },
+						containsText: { type: Type.STRING, description: 'Filter by text content' },
+					},
+					required: ['channel'],
+				},
+			},
+			{
+				name: 'exportMessages',
+				description: 'Export channel messages to JSON or text file',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						channel: { type: Type.STRING, description: 'Channel name or ID' },
+						format: { type: Type.STRING, enum: ['json', 'txt'], description: 'Export format' },
+						limit: { type: Type.NUMBER, description: 'Max messages (default 1000)' },
+					},
+					required: ['channel'],
+				},
+			},
+			{
+				name: 'copyMessages',
+				description: 'Copy messages from one channel to another',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						sourceChannel: { type: Type.STRING, description: 'Source channel name or ID' },
+						targetChannel: { type: Type.STRING, description: 'Target channel name or ID' },
+						limit: { type: Type.NUMBER, description: 'Max messages to copy (default 50)' },
+					},
+					required: ['sourceChannel', 'targetChannel'],
+				},
+			},
+			{
+				name: 'warnUser',
+				description: 'Issue a warning to a user (tracked in persistent storage)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						user: { type: Type.STRING, description: 'Username or user ID' },
+						reason: { type: Type.STRING, description: 'Reason for warning' },
+						moderator: { type: Type.STRING, description: 'Moderator issuing warning' },
+					},
+					required: ['user', 'reason', 'moderator'],
+				},
+			},
+			{
+				name: 'listWarnings',
+				description: 'View all warnings for a user',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						user: { type: Type.STRING, description: 'Username or user ID' },
+					},
+					required: ['user'],
+				},
+			},
+			{
+				name: 'clearWarnings',
+				description: 'Clear all or specific warnings for a user',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						user: { type: Type.STRING, description: 'Username or user ID' },
+						warningId: { type: Type.STRING, description: 'Specific warning ID to clear (optional)' },
+					},
+					required: ['user'],
+				},
+			},
+			{
+				name: 'muteUser',
+				description: 'Mute a user (removes Send Messages permission)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						user: { type: Type.STRING, description: 'Username or user ID' },
+						reason: { type: Type.STRING, description: 'Reason for mute' },
+					},
+					required: ['user'],
+				},
+			},
+			{
+				name: 'lockChannel',
+				description: 'Lock or unlock a channel (prevent/allow @everyone from sending messages)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						channel: { type: Type.STRING, description: 'Channel name or ID' },
+						locked: { type: Type.BOOLEAN, description: 'True to lock, false to unlock' },
+					},
+					required: ['channel', 'locked'],
+				},
+			},
+			{
+				name: 'massKick',
+				description: 'Kick multiple users matching criteria (bots, no roles, etc)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						criteria: { type: Type.STRING, enum: ['bots', 'no_roles'], description: 'Kick criteria' },
+						reason: { type: Type.STRING, description: 'Reason for kicks' },
+					},
+					required: ['criteria'],
+				},
+			},
+			{
+				name: 'massBan',
+				description: 'Ban multiple users by ID list',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						userIds: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'Array of user IDs' },
+						reason: { type: Type.STRING, description: 'Reason for bans' },
+					},
+					required: ['userIds'],
+				},
+			},
+			{
+				name: 'cloneRole',
+				description: 'Duplicate a role with all permissions',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						roleName: { type: Type.STRING, description: 'Role name to clone' },
+						newName: { type: Type.STRING, description: 'Name for cloned role' },
+					},
+					required: ['roleName'],
+				},
+			},
+			{
+				name: 'giveRoleToAll',
+				description: 'Assign a role to all members or filtered subset',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						roleName: { type: Type.STRING, description: 'Role name to assign' },
+						filter: { type: Type.STRING, enum: ['all', 'bots', 'humans'], description: 'Member filter' },
+					},
+					required: ['roleName'],
+				},
+			},
+			{
+				name: 'removeRoleFromAll',
+				description: 'Remove a role from all members who have it',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						roleName: { type: Type.STRING, description: 'Role name to remove' },
+					},
+					required: ['roleName'],
+				},
+			},
+			{
+				name: 'syncPermissions',
+				description: 'Sync category permissions to all child channels',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						category: { type: Type.STRING, description: 'Category name' },
+					},
+					required: ['category'],
+				},
+			},
+			{
+				name: 'cloneChannel',
+				description: 'Duplicate a channel with all settings and permissions',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						channelName: { type: Type.STRING, description: 'Channel name to clone' },
+					},
+					required: ['channelName'],
+				},
+			},
+			{
+				name: 'createTemplate',
+				description: 'Save server structure as template (channels, categories, roles)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						templateName: { type: Type.STRING, description: 'Name for template' },
+					},
+					required: ['templateName'],
+				},
+			},
+			{
+				name: 'applyTemplate',
+				description: 'Apply saved template to recreate server structure',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						templateFile: { type: Type.STRING, description: 'Template filename' },
+					},
+					required: ['templateFile'],
+				},
+			},
+			{
+				name: 'backupServer',
+				description: 'Full server backup (channels, roles, permissions, settings)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'voiceStats',
+				description: 'Get voice activity statistics (who is in voice, where)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'disconnectAll',
+				description: 'Disconnect all users from a voice channel',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						channel: { type: Type.STRING, description: 'Voice channel name or ID' },
+					},
+					required: ['channel'],
+				},
+			},
+			{
+				name: 'moveAll',
+				description: 'Move all users from one voice channel to another',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						fromChannel: { type: Type.STRING, description: 'Source voice channel' },
+						toChannel: { type: Type.STRING, description: 'Target voice channel' },
+					},
+					required: ['fromChannel', 'toChannel'],
+				},
+			},
+			{
+				name: 'stealEmoji',
+				description: 'Copy emoji from another server by URL',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						emojiUrl: { type: Type.STRING, description: 'Emoji image URL' },
+						name: { type: Type.STRING, description: 'Name for emoji' },
+					},
+					required: ['emojiUrl', 'name'],
+				},
+			},
+			{
+				name: 'enlargeEmoji',
+				description: 'Get full-size version of custom emoji',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						emojiId: { type: Type.STRING, description: 'Custom emoji ID' },
+					},
+					required: ['emojiId'],
+				},
+			},
+			{
+				name: 'avatar',
+				description: 'Get user avatar URL (profile picture)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						user: { type: Type.STRING, description: 'Username or user ID' },
+					},
+					required: ['user'],
+				},
+			},
+			{
+				name: 'serverIcon',
+				description: 'Get server icon, banner, and splash URLs',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'getChannelHistory',
+				description: 'Show when channel was created and its metadata',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						channel: { type: Type.STRING, description: 'Channel name or ID' },
+					},
+					required: ['channel'],
+				},
+			},
+			{
+				name: 'translate',
+				description:
+					'AI-powered translation to any language, including fictional languages and styles (Shakespearean, pirate, Yoda, Elvish, Klingon, etc)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						text: { type: Type.STRING, description: 'Text to translate' },
+						targetLanguage: { type: Type.STRING, description: 'Target language or style (e.g., "Spanish", "Pirate", "Yoda", "Shakespearean")' },
+						style: { type: Type.STRING, description: 'Additional style modifiers (optional)' },
+					},
+					required: ['text', 'targetLanguage'],
+				},
+			},
+			{
+				name: 'weather',
+				description: 'Get current weather for any location',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						location: { type: Type.STRING, description: 'City name or location' },
+					},
+					required: ['location'],
+				},
+			},
+			{
+				name: 'define',
+				description: 'Get dictionary definition for a word',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						word: { type: Type.STRING, description: 'Word to define' },
+					},
+					required: ['word'],
+				},
+			},
+			{
+				name: 'wikipedia',
+				description: 'Search Wikipedia and get article summary',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						query: { type: Type.STRING, description: 'Search query' },
+						sentences: { type: Type.NUMBER, description: 'Number of sentences in summary (default 3)' },
+					},
+					required: ['query'],
+				},
+			},
+			{
+				name: 'messageHeatmap',
+				description: 'Show when channel is most active (by hour/day)',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						channel: { type: Type.STRING, description: 'Channel name or ID' },
+						days: { type: Type.NUMBER, description: 'Days to analyze (default 7)' },
+					},
+					required: ['channel'],
+				},
+			},
+			{
+				name: 'topPosters',
+				description: 'Show users with most messages in a time period',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						channel: { type: Type.STRING, description: 'Channel name or ID' },
+						limit: { type: Type.NUMBER, description: 'Number of top posters (default 10)' },
+						days: { type: Type.NUMBER, description: 'Days to analyze (default 7)' },
+					},
+					required: ['channel'],
+				},
+			},
+			{
+				name: 'emojiStats',
+				description: 'Most used emojis in server',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						days: { type: Type.NUMBER, description: 'Days to analyze (default 7)' },
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'channelActivity',
+				description: 'Compare activity across all channels',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						days: { type: Type.NUMBER, description: 'Days to analyze (default 7)' },
+					},
+					required: [],
+				},
+			},
+			{
+				name: 'reactOnKeyword',
+				description: 'Auto-react to messages containing specific keywords',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						keyword: { type: Type.STRING, description: 'Keyword to watch for' },
+						emoji: { type: Type.STRING, description: 'Emoji to react with' },
+						action: { type: Type.STRING, enum: ['add', 'remove', 'list'], description: 'Action to perform' },
+					},
+					required: ['keyword', 'emoji'],
+				},
+			},
+			{
+				name: 'autoRespond',
+				description: 'Set up auto-responses to specific triggers',
+				parameters: {
+					type: Type.OBJECT,
+					properties: {
+						server: { type: Type.STRING, description: 'Server name or ID' },
+						trigger: { type: Type.STRING, description: 'Trigger phrase' },
+						response: { type: Type.STRING, description: 'Response message' },
+						action: { type: Type.STRING, enum: ['add', 'remove', 'list'], description: 'Action to perform' },
+					},
+					required: ['trigger'],
+				},
+			},
 		],
 	};
 }
