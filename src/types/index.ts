@@ -384,3 +384,243 @@ export interface ExecuteCustomCommandData extends ServerIdentifier {
 	userId: string;
 	channelId: string;
 }
+
+export interface BulkEditMessagesData extends ChannelIdentifier {
+	messageIds: string[];
+	newContent: string;
+}
+
+export interface SearchMessagesData extends ChannelIdentifier {
+	query?: string;
+	author?: string;
+	limit?: number;
+}
+
+export interface PinAllMessagesData extends ChannelIdentifier {
+	minReactions?: number;
+	authorId?: string;
+	containsText?: string;
+}
+
+export interface ExportMessagesData extends ChannelIdentifier {
+	format?: 'json' | 'txt';
+	limit?: number;
+}
+
+export interface CopyMessagesData extends ServerIdentifier {
+	sourceChannel: string;
+	targetChannel: string;
+	limit?: number;
+}
+
+export interface WarnUserData extends ServerIdentifier {
+	user: string;
+	reason: string;
+	moderator: string;
+}
+
+export interface ListWarningsData extends ServerIdentifier {
+	user: string;
+}
+
+export interface ClearWarningsData extends ServerIdentifier {
+	user: string;
+	warningId?: string;
+}
+
+export interface AutomodData extends ServerIdentifier {
+	action: 'enable' | 'disable';
+	bannedWords?: string[];
+	maxMentions?: number;
+}
+
+export interface MuteUserData extends ServerIdentifier {
+	user: string;
+	reason?: string;
+}
+
+export interface LockChannelData extends ChannelIdentifier {
+	locked: boolean;
+}
+
+export interface MassKickData extends ServerIdentifier {
+	criteria: 'bots' | 'no_roles' | 'inactive';
+	reason?: string;
+}
+
+export interface MassBanData extends ServerIdentifier {
+	userIds: string[];
+	reason?: string;
+}
+
+export interface CloneRoleData extends ServerIdentifier {
+	roleName: string;
+	newName?: string;
+}
+
+export interface GiveRoleToAllData extends ServerIdentifier {
+	roleName: string;
+	filter?: 'all' | 'bots' | 'humans';
+}
+
+export interface RemoveRoleFromAllData extends ServerIdentifier {
+	roleName: string;
+}
+
+export interface CreateRoleMenuData extends ChannelIdentifier {
+	title: string;
+	roles: Array<{ emoji: string; roleId: string; label: string }>;
+}
+
+export interface SyncPermissionsData extends ServerIdentifier {
+	category: string;
+}
+
+export interface CloneChannelData extends ServerIdentifier {
+	channelName: string;
+}
+
+export interface CreateTemplateData extends ServerIdentifier {
+	templateName: string;
+}
+
+export interface ApplyTemplateData extends ServerIdentifier {
+	templateFile: string;
+}
+
+export interface BackupServerData extends ServerIdentifier {}
+
+export interface RestoreServerData extends ServerIdentifier {
+	backupFile: string;
+}
+
+export interface JoinLeaveStatsData extends ServerIdentifier {
+	days?: number;
+}
+
+export interface NicknameHistoryData extends ServerIdentifier {
+	user: string;
+}
+
+export interface CreateTempVoiceData extends ServerIdentifier {
+	channelName: string;
+	category?: string;
+}
+
+export interface VoiceStatsData extends ServerIdentifier {}
+
+export interface DisconnectAllData extends ChannelIdentifier {}
+
+export interface MoveAllData extends ServerIdentifier {
+	fromChannel: string;
+	toChannel: string;
+}
+
+export interface RemindMeData extends ServerIdentifier {
+	user?: string;
+	message: string;
+	delay: number;
+	channel?: string;
+	recurring?: boolean;
+}
+
+export interface StealEmojiData extends ServerIdentifier {
+	emojiUrl: string;
+	name: string;
+}
+
+export interface EnlargeEmojiData {
+	emojiId: string;
+}
+
+export interface AvatarData extends ServerIdentifier {
+	user: string;
+}
+
+export interface ServerIconData extends ServerIdentifier {}
+
+export interface ChannelHistoryData extends ChannelIdentifier {}
+
+export interface TranslateData {
+	text: string;
+	targetLanguage: string;
+	style?: string;
+}
+
+export interface WeatherData {
+	location: string;
+}
+
+export interface DefineData {
+	word: string;
+}
+
+export interface WikipediaData {
+	query: string;
+	sentences?: number;
+}
+
+export interface MessageHeatmapData extends ChannelIdentifier {
+	days?: number;
+}
+
+export interface TopPostersData extends ChannelIdentifier {
+	limit?: number;
+	days?: number;
+}
+
+export interface EmojiStatsData extends ServerIdentifier {
+	days?: number;
+}
+
+export interface ChannelActivityData extends ServerIdentifier {
+	days?: number;
+}
+
+export interface MemberGrowthData extends ServerIdentifier {}
+
+export interface GithubIssueData {
+	repo: string;
+	title: string;
+	body?: string;
+	labels?: string[];
+}
+
+export interface TwitterPostData {
+	content: string;
+}
+
+export interface YoutubeNotifyData {
+	channelId: string;
+	discordChannel: string;
+}
+
+export interface TwitchNotifyData {
+	twitchUsername: string;
+	discordChannel: string;
+}
+
+export interface ReactOnKeywordData extends ServerIdentifier {
+	keyword: string;
+	emoji: string;
+	action?: 'add' | 'remove' | 'list';
+}
+
+export interface AutoRespondData extends ServerIdentifier {
+	trigger: string;
+	response?: string;
+	action?: 'add' | 'remove' | 'list';
+}
+
+export interface ChatGPTModeData extends ChannelIdentifier {
+	enabled: boolean;
+}
+
+export interface PersonalityData {
+	trait: string;
+	intensity: number;
+}
+
+export interface ContextManagementData {
+	action: 'clear' | 'summarize' | 'expand';
+}
