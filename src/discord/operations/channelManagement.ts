@@ -126,11 +126,11 @@ function parseInlineValue(inlineRaw: any): boolean | undefined {
 }
 
 function normalizeObjectField(field: any): { name: string; value: string; inline?: boolean } | null {
-	const nameValue = setString((field as any).name);
-	const valueValue = setString((field as any).value);
+	const nameValue = setString(field.name);
+	const valueValue = setString(field.value);
 	if (!nameValue || !valueValue) return null;
 
-	const inlineValue = parseInlineValue((field as any).inline);
+	const inlineValue = parseInlineValue(field.inline);
 	const result: { name: string; value: string; inline?: boolean } = {
 		name: clampString(nameValue, 256),
 		value: clampString(valueValue, 1024),
@@ -182,9 +182,9 @@ function extractFieldsFromDescription(description: string): {
 	for (const raw of candidates) {
 		try {
 			const parsed = JSON.parse(raw);
-			const n = setString((parsed as any).name);
-			const v = setString((parsed as any).value);
-			const inl = parseInlineValue((parsed as any).inline);
+			const n = setString(parsed.name);
+			const v = setString(parsed.value);
+			const inl = parseInlineValue(parsed.inline);
 
 			if (n && v) {
 				fields.push({
@@ -205,22 +205,22 @@ function extractFieldsFromDescription(description: string): {
 }
 
 function buildEmbedFooter(footer: any): Record<string, any> | null {
-	const footerText = setString((footer as any).text);
+	const footerText = setString(footer.text);
 	if (!footerText) return null;
 
 	const normalizedFooter: Record<string, any> = { text: clampString(footerText, 2048) };
-	const footerIcon = setString((footer as any).iconUrl);
+	const footerIcon = setString(footer.iconUrl);
 	if (footerIcon) normalizedFooter.icon_url = footerIcon;
 	return normalizedFooter;
 }
 
 function buildEmbedAuthor(author: any): Record<string, any> | null {
-	const authorName = setString((author as any).name);
+	const authorName = setString(author.name);
 	if (!authorName) return null;
 
 	const normalizedAuthor: Record<string, any> = { name: clampString(authorName, 256) };
-	const authorIcon = setString((author as any).iconUrl);
-	const authorUrl = setString((author as any).url);
+	const authorIcon = setString(author.iconUrl);
+	const authorUrl = setString(author.url);
 	if (authorIcon) normalizedAuthor.icon_url = authorIcon;
 	if (authorUrl) normalizedAuthor.url = authorUrl;
 	return normalizedAuthor;
