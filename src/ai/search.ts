@@ -1,6 +1,8 @@
 import { GoogleGenAI } from '@google/genai';
 import puppeteer from 'puppeteer';
 
+type SearchEngine = 'google' | 'bing' | 'duckduckgo' | 'yahoo';
+
 interface SearchResult {
 	title: string;
 	url: string;
@@ -17,7 +19,7 @@ interface ScrapedData {
 
 async function performWebScraping(
 	query: string,
-	engines: Array<'google' | 'bing' | 'duckduckgo' | 'yahoo'>,
+	engines: SearchEngine[],
 	maxResults: number,
 ): Promise<{ searchResults: SearchResult[]; scrapedContent: string }> {
 	let searchResults: SearchResult[] = [];
@@ -82,27 +84,26 @@ Maximum results: ${maxResults}`,
 	};
 }
 
-function buildDfintPrompt(
-	query: string,
-	depth: string,
-	includeImages: boolean,
-	includeNews: boolean,
-	maxResults: number,
-	scrapedContent: string,
-	searchResults: SearchResult[],
-	engines: Array<'google' | 'bing' | 'duckduckgo' | 'yahoo'>,
-): string {
+type BuildDfintPromptInput = {
+	query: string;
+	depth: string;
+	includeImages: boolean;
+	includeNews: boolean;
+	maxResults: number;
+	scrapedContent: string;
+	searchResults: SearchResult[];
+	engines: SearchEngine[];
+};
+
+function buildDfintPrompt(input: BuildDfintPromptInput): string {
+	const { query, depth, includeImages, includeNews, maxResults, scrapedContent, searchResults, engines } = input;
 	const includeImagesLine = includeImages ? 'Include images.\n' : '';
 	const includeNewsLine = includeNews ? 'Include news.\n' : '';
 	const scrapedSection = scrapedContent ? `Scraped content:\n${scrapedContent}\n\n` : '';
-	const resultsSection =
-		searchResults.length > 0
-			? `Results from ${engines.join(', ')}:\n${searchResults.map((r) => `- ${r.title} (${r.url})\n  ${r.snippet}`).join('\n\n')}\n\n`
-			: '';
+	const resultLines = searchResults.map((r) => `- ${r.title} (${r.url})\n  ${r.snippet}`).join('\n\n');
+	const resultsSection = searchResults.length > 0 ? `Results from ${engines.join(', ')}:\n${resultLines}\n\n` : '';
 
-	return `Conduct digital footprint intelligence on: "${query}"
-	
-Depth: ${depth}
+	return `Conduct digital footprint intelligence on: "${query}"\n\t\nDepth: ${depth}
 ${includeImagesLine}${includeNewsLine}Max results: ${maxResults}
 
 ${scrapedSection}${resultsSection}
@@ -205,7 +206,7 @@ export async function DFINT(
 		includeImages?: boolean;
 		includeNews?: boolean;
 		maxResults?: number;
-		engines?: Array<'google' | 'bing' | 'duckduckgo' | 'yahoo'>;
+		engines?: SearchEngine[];
 		scrapeResults?: boolean;
 	},
 ): Promise<string> {
@@ -213,7 +214,8 @@ export async function DFINT(
 	const includeImages = options?.includeImages || false;
 	const includeNews = options?.includeNews || false;
 	const maxResults = options?.maxResults || 10;
-	const engines = options?.engines || (options?.scrapeResults ? ['google', 'bing', 'duckduckgo', 'yahoo'] : []);
+	const engines: SearchEngine[] =
+		options?.engines || (options?.scrapeResults ? ['google', 'bing', 'duckduckgo', 'yahoo'] : []);
 	const scrapeResults = options?.scrapeResults || false;
 
 	let searchResults: SearchResult[] = [];
@@ -234,7 +236,7 @@ export async function DFINT(
 
 	const ai = new GoogleGenAI({ apiKey });
 	const config = createDfintConfig(depth, includeNews, includeImages, maxResults);
-	const searchPrompt = buildDfintPrompt(
+	const searchPrompt = buildDfintPrompt({
 		query,
 		depth,
 		includeImages,
@@ -243,7 +245,7 @@ export async function DFINT(
 		scrapedContent,
 		searchResults,
 		engines,
-	);
+	});
 
 	return await executeDfintQuery(ai, config, searchPrompt, 'gemini-flash-latest');
 }
