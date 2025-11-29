@@ -16,6 +16,10 @@ const EXCLUDED_EVENTS = new Set([
 	Events.ShardError,
 ]);
 
+function isClientEvent(value: unknown): value is keyof ClientEvents {
+	return typeof value === 'string';
+}
+
 async function ensureLogDirectory(): Promise<void> {
 	try {
 		await mkdir(LOG_DIR, { recursive: true });
@@ -82,7 +86,7 @@ export function createEventLoggers(): Array<{
 	name: keyof ClientEvents;
 	execute: (...args: any[]) => void;
 }> {
-	const allEvents = Object.values(Events) as Array<keyof ClientEvents>;
+	const allEvents = Object.values(Events).filter(isClientEvent) as Array<keyof ClientEvents>;
 
 	return allEvents.map((eventName) => ({
 		name: eventName,
