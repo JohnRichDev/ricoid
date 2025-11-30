@@ -11,6 +11,36 @@ import {
 } from './functionCalls.js';
 import type { FunctionExecutionLogEntry } from './executionTypes.js';
 import { extractResponseText } from './conversation.js';
+
+type FunctionResult = { name: string; result: any };
+
+type GenerateAIContentParams = {
+	aiClient: GoogleGenAI;
+	modelName: string;
+	config: any;
+	conversation: any[];
+	message: any;
+	allFunctionResults: FunctionResult[];
+	executionLog: FunctionExecutionLogEntry[];
+	executedCallCache: Map<string, any>;
+	executedResultsByName: Map<string, any>;
+	checklistMessageRef: { current: any };
+	newChannelIdRef: { current: string | null };
+	loopGuardRef: { current: number };
+	sequenceCounterRef: { current: number };
+	functionAttemptCounts: Map<string, number>;
+};
+
+type ProcessAIParams = {
+	aiClient: GoogleGenAI;
+	modelName: string;
+	config: any;
+	conversation: any[];
+	message: any;
+	latestUserMessage: string;
+	checklistMessageRef: { current: any };
+	newChannelIdRef: { current: string | null };
+};
 async function generateFallbackResponse(aiClient: GoogleGenAI, latestUserMessage: string): Promise<string> {
 	try {
 		const fallback = await aiClient.models.generateContent({
@@ -164,21 +194,26 @@ async function retryWithBackoff(attempt: number, baseDelay: number): Promise<voi
 	const delayMs = baseDelay * Math.pow(2, attempt - 1);
 	await new Promise((r) => setTimeout(r, delayMs));
 }
-async function generateAIContent(
-	aiClient: GoogleGenAI,
-	modelName: string,
-	config: any,
-	conversation: any[],
-	message: any,
-	allFunctionResults: Array<{ name: string; result: any }>,
-	executionLog: FunctionExecutionLogEntry[],
-	executedCallCache: Map<string, any>,
-	executedResultsByName: Map<string, any>,
-	checklistMessageRef: { current: any },
-	newChannelIdRef: { current: string | null },
-	loopGuardRef: { current: number },
-	sequenceCounterRef: { current: number },
-): Promise<{ hasMoreFunctionCalls: boolean; responseText: string }> {
+async function generateAIContent(params: GenerateAIContentParams): Promise<{
+	hasMoreFunctionCalls: boolean;
+	responseText: string;
+}> {
+	const {
+		aiClient,
+		modelName,
+		config,
+		conversation,
+		message,
+		allFunctionResults,
+		executionLog,
+		executedCallCache,
+		executedResultsByName,
+		checklistMessageRef,
+		newChannelIdRef,
+		loopGuardRef,
+		sequenceCounterRef,
+		functionAttemptCounts,
+	} = params;
 	const maxRetries = 5;
 	const baseRetryDelay = 3000;
 	let lastError;
@@ -193,19 +228,22 @@ async function generateAIContent(
 				await processSubsequentFunctionCalls(response, message, executionLog, checklistMessageRef.current);
 			}
 
-			const { hasFunctionCalls: hasCurrentFunctionCalls } = await processFunctionCalls(
+			const functionResults: FunctionResult[] = [];
+			const { hasFunctionCalls: hasCurrentFunctionCalls } = await processFunctionCalls({
 				response,
-				message,
 				conversation,
+				message,
+				functionResults,
 				allFunctionResults,
 				executionLog,
 				executedCallCache,
 				executedResultsByName,
-				checklistMessageRef.current,
-				newChannelIdRef,
+				functionAttemptCounts,
 				loopGuardRef,
+				checklistMessage: checklistMessageRef.current,
+				newChannelIdRef,
 				sequenceCounterRef,
-			);
+			});
 
 			const loopGuardTriggered = loopGuardRef.current >= DUPLICATE_LOOP_THRESHOLD;
 			return {
@@ -403,20 +441,21 @@ async function finalizeChecklistIfNeeded(
 	}
 }
 
-export async function processAIResponse(
-	aiClient: GoogleGenAI,
-	modelName: string,
-	config: any,
-	conversation: any[],
-	message: any,
-	latestUserMessage: string,
-	checklistMessageRef: { current: any },
-	newChannelIdRef: { current: string | null },
-): Promise<{
+export async function processAIResponse(params: ProcessAIParams): Promise<{
 	responseText: string;
 	allFunctionResults: Array<{ name: string; result: any }>;
 	executionLog: FunctionExecutionLogEntry[];
 }> {
+	const {
+		aiClient,
+		modelName,
+		config,
+		conversation,
+		message,
+		latestUserMessage,
+		checklistMessageRef,
+		newChannelIdRef,
+	} = params;
 	let responseText = '';
 	const maxRounds = 10;
 	let round = 0;
@@ -426,6 +465,7 @@ export async function processAIResponse(
 	const executionLog: FunctionExecutionLogEntry[] = [];
 	const sequenceCounterRef = { current: 1 };
 	const loopGuardRef = { current: 0 };
+	const functionAttemptCounts = new Map<string, number>();
 
 	try {
 		if (!checklistMessageRef.current) {
@@ -435,7 +475,7 @@ export async function processAIResponse(
 
 	while (round < maxRounds) {
 		round++;
-		const { hasMoreFunctionCalls, responseText: currentResponseText } = await generateAIContent(
+		const { hasMoreFunctionCalls, responseText: currentResponseText } = await generateAIContent({
 			aiClient,
 			modelName,
 			config,
@@ -449,7 +489,8 @@ export async function processAIResponse(
 			newChannelIdRef,
 			loopGuardRef,
 			sequenceCounterRef,
-		);
+			functionAttemptCounts,
+		});
 
 		if (!hasMoreFunctionCalls) {
 			responseText = currentResponseText;
