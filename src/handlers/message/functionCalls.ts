@@ -4,6 +4,33 @@ import { normalizeChannelArgs } from './normalize.js';
 import { setOperationContext, clearOperationContext } from '../../util/confirmedOperations.js';
 import { createChecklistEmbed } from './checklist.js';
 import type { FunctionExecutionLogEntry, FunctionExecutionStatus } from './executionTypes.js';
+
+type FunctionResult = { name: string; result: any };
+
+type FunctionProcessingState = {
+	message: Message;
+	functionResults: FunctionResult[];
+	allFunctionResults: FunctionResult[];
+	executionLog: FunctionExecutionLogEntry[];
+	executedCallCache: Map<string, any>;
+	executedResultsByName: Map<string, any>;
+	functionAttemptCounts: Map<string, number>;
+	loopGuardRef: { current: number };
+	checklistMessage: Message | null;
+	newChannelIdRef: { current: string | null };
+	sequenceCounterRef: { current: number };
+};
+
+export type FunctionCallContext = FunctionProcessingState & {
+	normalizedArgs: any;
+	logEntryIndex: number;
+	callSignature: string | null;
+};
+
+type FunctionCallBatchParams = FunctionProcessingState & {
+	response: any;
+	conversation: any[];
+};
 export const SINGLE_EXECUTION_FUNCTIONS = new Set<string>([
 	'search',
 	'createEmbed',
@@ -50,7 +77,7 @@ function stableStringify(value: any): string {
 		const keys = Object.keys(value).sort((a, b) => a.localeCompare(b));
 		const parts = keys.map((key) => {
 			const keyStr = JSON.stringify(key);
-			const valStr = stableStringify((value as any)[key]);
+			const valStr = stableStringify(value[key]);
 			return `${keyStr}:${valStr}`;
 		});
 		return `{${parts.join(',')}}`;
@@ -132,7 +159,7 @@ function handleMissingHandler(
 	sequenceCounterRef: { current: number },
 ): void {
 	logFunctionAction(message, 'handler-missing', { name: call.name });
-	const availableFunctions = Object.keys(functionHandlers as any);
+	const availableFunctions = Object.keys(functionHandlers);
 	const normalizedCallName = call.name.toLowerCase().replace(/_/g, '');
 	const suggestion = availableFunctions.find((fn) => fn.toLowerCase().replace(/_/g, '') === normalizedCallName);
 	let errorMessage = `Unknown function: ${call.name}`;
@@ -151,150 +178,107 @@ function handleMissingHandler(
 		});
 }
 
-function handleScreenshotRepeat(
-	call: any,
-	message: Message,
-	functionResults: Array<{ name: string; result: any }>,
-	allFunctionResults: Array<{ name: string; result: any }>,
-	executionLog: FunctionExecutionLogEntry[],
-	logEntryIndex: number,
-	sequenceCounterRef: { current: number },
-	attemptCount: number,
-): boolean {
+function handleScreenshotRepeat(call: any, context: FunctionCallContext, attemptCount: number): boolean {
 	if (call.name !== 'screenshotWebsite' || attemptCount <= 1) return false;
-	logFunctionAction(message, 'screenshot-repeat-skip', { name: call.name, attempt: attemptCount });
+	logFunctionAction(context.message, 'screenshot-repeat-skip', { name: call.name, attempt: attemptCount });
 	const info =
 		'Screenshot already captured for this request. Ask for another screenshot explicitly in a new message if you need a fresh capture.';
-	functionResults.push({ name: call.name, result: info });
-	allFunctionResults.push({ name: call.name, result: info });
-	if (logEntryIndex >= 0) markEntryResult(executionLog[logEntryIndex], 'skipped', info, sequenceCounterRef);
+	context.functionResults.push({ name: call.name, result: info });
+	context.allFunctionResults.push({ name: call.name, result: info });
+	if (context.logEntryIndex >= 0)
+		markEntryResult(context.executionLog[context.logEntryIndex], 'skipped', info, context.sequenceCounterRef);
 	else
-		pushLogEntry(executionLog, {
+		pushLogEntry(context.executionLog, {
 			name: call.name,
 			args: call.args ?? null,
 			status: 'skipped',
 			result: info,
-			sequence: sequenceCounterRef.current++,
+			sequence: context.sequenceCounterRef.current++,
 		});
 	return true;
 }
 
-function handleSingleExecutionSkip(
-	call: any,
-	message: Message,
-	functionResults: Array<{ name: string; result: any }>,
-	allFunctionResults: Array<{ name: string; result: any }>,
-	executionLog: FunctionExecutionLogEntry[],
-	logEntryIndex: number,
-	normalizedArgs: any,
-	executedResultsByName: Map<string, any>,
-	sequenceCounterRef: { current: number },
-	loopGuardRef: { current: number },
-): boolean {
-	if (!SINGLE_EXECUTION_FUNCTIONS.has(call.name) || !executedResultsByName.has(call.name)) return false;
-	logFunctionAction(message, 'single-execution-skip', { name: call.name });
-	const previousResultByName = executedResultsByName.get(call.name);
+function handleSingleExecutionSkip(call: any, context: FunctionCallContext): boolean {
+	if (!SINGLE_EXECUTION_FUNCTIONS.has(call.name) || !context.executedResultsByName.has(call.name)) return false;
+	logFunctionAction(context.message, 'single-execution-skip', { name: call.name });
+	const previousResultByName = context.executedResultsByName.get(call.name);
 	const duplicateMessage = formatDuplicateMessage(call.name, previousResultByName);
-	functionResults.push({ name: call.name, result: duplicateMessage });
-	allFunctionResults.push({ name: call.name, result: duplicateMessage });
-	if (logEntryIndex >= 0) markEntryResult(executionLog[logEntryIndex], 'skipped', duplicateMessage, sequenceCounterRef);
+	context.functionResults.push({ name: call.name, result: duplicateMessage });
+	context.allFunctionResults.push({ name: call.name, result: duplicateMessage });
+	if (context.logEntryIndex >= 0)
+		markEntryResult(
+			context.executionLog[context.logEntryIndex],
+			'skipped',
+			duplicateMessage,
+			context.sequenceCounterRef,
+		);
 	else
-		pushLogEntry(executionLog, {
+		pushLogEntry(context.executionLog, {
 			name: call.name,
-			args: normalizedArgs,
+			args: context.normalizedArgs,
 			status: 'skipped',
 			result: duplicateMessage,
-			sequence: sequenceCounterRef.current++,
+			sequence: context.sequenceCounterRef.current++,
 		});
-	loopGuardRef.current++;
+	context.loopGuardRef.current++;
 	return true;
 }
 
-function handleSignatureDuplicateSkip(
-	call: any,
-	message: Message,
-	functionResults: Array<{ name: string; result: any }>,
-	allFunctionResults: Array<{ name: string; result: any }>,
-	executionLog: FunctionExecutionLogEntry[],
-	logEntryIndex: number,
-	normalizedArgs: any,
-	executedCallCache: Map<string, any>,
-	callSignature: string,
-	sequenceCounterRef: { current: number },
-	loopGuardRef: { current: number },
-): boolean {
-	if (!executedCallCache.has(callSignature)) return false;
-	logFunctionAction(message, 'signature-duplicate-skip', { name: call.name });
-	const previousResult = executedCallCache.get(callSignature);
+function handleSignatureDuplicateSkip(call: any, context: FunctionCallContext): boolean {
+	if (!context.callSignature || !context.executedCallCache.has(context.callSignature)) return false;
+	logFunctionAction(context.message, 'signature-duplicate-skip', { name: call.name });
+	const previousResult = context.executedCallCache.get(context.callSignature);
 	const duplicateMessage = formatDuplicateMessage(call.name, previousResult);
-	functionResults.push({ name: call.name, result: duplicateMessage });
-	allFunctionResults.push({ name: call.name, result: duplicateMessage });
-	if (logEntryIndex >= 0) markEntryResult(executionLog[logEntryIndex], 'skipped', duplicateMessage, sequenceCounterRef);
+	context.functionResults.push({ name: call.name, result: duplicateMessage });
+	context.allFunctionResults.push({ name: call.name, result: duplicateMessage });
+	if (context.logEntryIndex >= 0)
+		markEntryResult(
+			context.executionLog[context.logEntryIndex],
+			'skipped',
+			duplicateMessage,
+			context.sequenceCounterRef,
+		);
 	else
-		pushLogEntry(executionLog, {
+		pushLogEntry(context.executionLog, {
 			name: call.name,
-			args: normalizedArgs,
+			args: context.normalizedArgs,
 			status: 'skipped',
 			result: duplicateMessage,
-			sequence: sequenceCounterRef.current++,
+			sequence: context.sequenceCounterRef.current++,
 		});
-	loopGuardRef.current++;
+	context.loopGuardRef.current++;
 	return true;
 }
 
-async function executeFunction(
-	call: any,
-	message: Message,
-	handler: Function,
-	normalizedArgs: any,
-	functionResults: Array<{ name: string; result: any }>,
-	allFunctionResults: Array<{ name: string; result: any }>,
-	executionLog: FunctionExecutionLogEntry[],
-	logEntryIndex: number,
-	executedCallCache: Map<string, any>,
-	executedResultsByName: Map<string, any>,
-	callSignature: string,
-	sequenceCounterRef: { current: number },
-	newChannelIdRef: { current: string | null },
-): Promise<void> {
-	logFunctionAction(message, 'execute-start', { name: call.name, args: normalizedArgs });
-	let result = await executeFunctionHandler(call, message, handler, normalizedArgs);
+async function executeFunction(call: any, handler: Function, context: FunctionCallContext): Promise<void> {
+	logFunctionAction(context.message, 'execute-start', { name: call.name, args: context.normalizedArgs });
+	let result = await executeFunctionHandler(call, context.message, handler, context.normalizedArgs);
 	if (call.name === 'purgeChannel' && typeof result === 'string') {
 		const { newChannelId, cleanedResult } = extractNewChannelId(result);
 		if (newChannelId) {
-			newChannelIdRef.current = newChannelId;
+			context.newChannelIdRef.current = newChannelId;
 			result = cleanedResult;
 		}
 	}
-	functionResults.push({ name: call.name, result });
-	allFunctionResults.push({ name: call.name, result });
-	executedCallCache.set(callSignature, result);
-	executedResultsByName.set(call.name, result);
-	logFunctionAction(message, 'execute-success', { name: call.name, result });
-	if (logEntryIndex >= 0) markEntryResult(executionLog[logEntryIndex], 'success', result, sequenceCounterRef);
+	context.functionResults.push({ name: call.name, result });
+	context.allFunctionResults.push({ name: call.name, result });
+	if (context.callSignature) context.executedCallCache.set(context.callSignature, result);
+	context.executedResultsByName.set(call.name, result);
+	logFunctionAction(context.message, 'execute-success', { name: call.name, result });
+	if (context.logEntryIndex >= 0)
+		markEntryResult(context.executionLog[context.logEntryIndex], 'success', result, context.sequenceCounterRef);
 	else
-		pushLogEntry(executionLog, {
+		pushLogEntry(context.executionLog, {
 			name: call.name,
-			args: normalizedArgs,
+			args: context.normalizedArgs,
 			status: 'success',
 			result,
-			sequence: sequenceCounterRef.current++,
+			sequence: context.sequenceCounterRef.current++,
 		});
 }
 
-type ProcessFunctionCallParams = {
+type ProcessFunctionCallParams = FunctionProcessingState & {
 	call: any;
-	message: Message;
-	functionResults: Array<{ name: string; result: any }>;
-	allFunctionResults: Array<{ name: string; result: any }>;
-	executionLog: FunctionExecutionLogEntry[];
-	executedCallCache: Map<string, any>;
-	executedResultsByName: Map<string, any>;
-	functionAttemptCounts: Map<string, number>;
-	loopGuardRef: { current: number };
-	checklistMessage: Message | null;
-	newChannelIdRef: { current: string | null };
-	sequenceCounterRef: { current: number };
 };
 
 function findLogEntryIndex(executionLog: FunctionExecutionLogEntry[], callName: string, callSignature: string): number {
