@@ -289,9 +289,10 @@ function findLogEntryIndex(executionLog: FunctionExecutionLogEntry[], callName: 
 	});
 
 	if (index < 0) {
-		index = executionLog.findIndex(
-			(e) => e.name === callName && e.status === 'pending' && e.args && (e.args as any).__planned === true,
-		);
+		index = executionLog.findIndex((e) => {
+			if (e.name !== callName || e.status !== 'pending' || !e.args) return false;
+			return typeof e.args === 'object' && Reflect.get(e.args, '__planned') === true;
+		});
 	}
 
 	return index;
@@ -303,39 +304,28 @@ function normalizeCallArgs(call: any, message: Message): any {
 	return normalizeChannelArgs(clonedArgs, message.channelId, message.guildId || '', call.name);
 }
 
-function handleExecutionError(
-	error: unknown,
-	call: any,
-	message: Message,
-	functionResults: Array<{ name: string; result: any }>,
-	allFunctionResults: Array<{ name: string; result: any }>,
-	executionLog: FunctionExecutionLogEntry[],
-	logEntryIndex: number,
-	callSignature: string | null,
-	executedCallCache: Map<string, any>,
-	sequenceCounterRef: { current: number },
-): void {
+function handleExecutionError(error: unknown, call: any, context: FunctionCallContext): void {
 	if (!call.name) return;
 
 	const errorResult = { error: error instanceof Error ? error.message : 'Unknown error' };
-	functionResults.push({ name: call.name, result: errorResult });
-	allFunctionResults.push({ name: call.name, result: errorResult });
+	context.functionResults.push({ name: call.name, result: errorResult });
+	context.allFunctionResults.push({ name: call.name, result: errorResult });
 
-	if (callSignature) {
-		executedCallCache.set(callSignature, errorResult);
+	if (context.callSignature) {
+		context.executedCallCache.set(context.callSignature, errorResult);
 	}
 
-	logFunctionAction(message, 'execute-error', { name: call.name, error: errorResult });
+	logFunctionAction(context.message, 'execute-error', { name: call.name, error: errorResult });
 
-	if (logEntryIndex >= 0) {
-		markEntryResult(executionLog[logEntryIndex], 'error', errorResult, sequenceCounterRef);
+	if (context.logEntryIndex >= 0) {
+		markEntryResult(context.executionLog[context.logEntryIndex], 'error', errorResult, context.sequenceCounterRef);
 	} else {
-		pushLogEntry(executionLog, {
+		pushLogEntry(context.executionLog, {
 			name: call.name,
 			args: call.args ?? null,
 			status: 'error',
 			result: errorResult,
-			sequence: sequenceCounterRef.current++,
+			sequence: context.sequenceCounterRef.current++,
 		});
 	}
 }
