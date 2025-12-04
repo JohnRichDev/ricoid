@@ -363,16 +363,17 @@ export async function processFunctionCall(params: ProcessFunctionCallParams): Pr
 	} = params;
 
 	let callSignature: string | null = null;
-	let logEntryIndex: number = -1;
+	let logEntryIndex = -1;
+	let normalizedArgs: any = null;
 
 	try {
 		if (!call.args || !call.name) return;
 
-		const normalizedArgs = normalizeCallArgs(call, message);
+		normalizedArgs = normalizeCallArgs(call, message);
 		callSignature = createCallSignature(call.name, normalizedArgs);
 		logEntryIndex = findLogEntryIndex(executionLog, call.name, callSignature);
 
-		const handler = (functionHandlers as any)[call.name];
+		const handler = functionHandlers[call.name];
 		if (!handler) {
 			handleMissingHandler(
 				call,
@@ -390,94 +391,63 @@ export async function processFunctionCall(params: ProcessFunctionCallParams): Pr
 		const attemptCount = (functionAttemptCounts.get(call.name) ?? 0) + 1;
 		functionAttemptCounts.set(call.name, attemptCount);
 
-		if (
-			handleScreenshotRepeat(
-				call,
-				message,
-				functionResults,
-				allFunctionResults,
-				executionLog,
-				logEntryIndex,
-				sequenceCounterRef,
-				attemptCount,
-			)
-		) {
+		const context: FunctionCallContext = {
+			message,
+			functionResults,
+			allFunctionResults,
+			executionLog,
+			executedCallCache,
+			executedResultsByName,
+			functionAttemptCounts,
+			loopGuardRef,
+			checklistMessage,
+			newChannelIdRef,
+			sequenceCounterRef,
+			normalizedArgs,
+			logEntryIndex,
+			callSignature,
+		};
+
+		if (handleScreenshotRepeat(call, context, attemptCount)) {
 			await updateChecklistEmbed(checklistMessage, executionLog);
 			return;
 		}
 
-		if (
-			handleSingleExecutionSkip(
-				call,
-				message,
-				functionResults,
-				allFunctionResults,
-				executionLog,
-				logEntryIndex,
-				normalizedArgs,
-				executedResultsByName,
-				sequenceCounterRef,
-				loopGuardRef,
-			)
-		) {
+		if (handleSingleExecutionSkip(call, context)) {
 			await updateChecklistEmbed(checklistMessage, executionLog);
 			return;
 		}
 
-		if (
-			handleSignatureDuplicateSkip(
-				call,
-				message,
-				functionResults,
-				allFunctionResults,
-				executionLog,
-				logEntryIndex,
-				normalizedArgs,
-				executedCallCache,
-				callSignature,
-				sequenceCounterRef,
-				loopGuardRef,
-			)
-		) {
+		if (handleSignatureDuplicateSkip(call, context)) {
 			await updateChecklistEmbed(checklistMessage, executionLog);
 			return;
 		}
 
 		setOperationContext({ message, userId: message.author.id, channelId: message.channelId });
 		try {
-			await executeFunction(
-				call,
-				message,
-				handler,
-				normalizedArgs,
-				functionResults,
-				allFunctionResults,
-				executionLog,
-				logEntryIndex,
-				executedCallCache,
-				executedResultsByName,
-				callSignature,
-				sequenceCounterRef,
-				newChannelIdRef,
-			);
+			await executeFunction(call, handler, context);
 			await updateChecklistEmbed(checklistMessage, executionLog);
 			await new Promise((r) => setTimeout(r, 500));
 		} finally {
 			clearOperationContext();
 		}
 	} catch (error) {
-		handleExecutionError(
-			error,
-			call,
+		handleExecutionError(error, call, {
 			message,
 			functionResults,
 			allFunctionResults,
 			executionLog,
+			executedCallCache,
+			executedResultsByName,
+			functionAttemptCounts,
+			loopGuardRef,
+			checklistMessage,
+			newChannelIdRef,
+			sequenceCounterRef,
+			normalizedArgs: normalizedArgs ?? call.args,
 			logEntryIndex,
 			callSignature,
-			executedCallCache,
-			sequenceCounterRef,
-		);
+		});
 		await updateChecklistEmbed(checklistMessage, executionLog);
 	}
 
