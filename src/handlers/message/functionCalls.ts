@@ -455,21 +455,25 @@ export async function processFunctionCall(params: ProcessFunctionCallParams): Pr
 	await updateChecklistEmbed(checklistMessage, executionLog);
 }
 export async function processFunctionCalls(
-	response: any,
-	message: Message,
-	conversation: any[],
-	allFunctionResults: Array<{ name: string; result: any }>,
-	executionLog: FunctionExecutionLogEntry[],
-	executedCallCache: Map<string, any>,
-	executedResultsByName: Map<string, any>,
-	checklistMessage: Message | null,
-	newChannelIdRef: { current: string | null },
-	loopGuardRef: { current: number },
-	sequenceCounterRef: { current: number },
+	params: FunctionCallBatchParams,
 ): Promise<{ hasFunctionCalls: boolean; functionResults: Array<{ name: string; result: any }> }> {
+	const {
+		response,
+		conversation,
+		message,
+		functionResults,
+		allFunctionResults,
+		executionLog,
+		executedCallCache,
+		executedResultsByName,
+		functionAttemptCounts,
+		loopGuardRef,
+		checklistMessage,
+		newChannelIdRef,
+		sequenceCounterRef,
+	} = params;
+
 	if (!response.functionCalls?.length) return { hasFunctionCalls: false, functionResults: [] };
-	const functionResults: Array<{ name: string; result: any }> = [];
-	const functionAttemptCounts = new Map<string, number>();
 	for (const call of response.functionCalls) {
 		await processFunctionCall({
 			call,
