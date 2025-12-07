@@ -144,50 +144,46 @@ function shouldProcessMessage(message: Message): boolean {
 	return userMessage.trim().length > 0;
 }
 
-export async function handleMessage(message: Message, aiClient: GoogleGenAI): Promise<void> {
-	if (!shouldProcessMessage(message)) return;
-
+function normalizeUserMessageInput(message: Message): string {
 	let userMessage = message.content;
 	if (message.mentions.has(message.client.user!.id)) {
 		userMessage = userMessage.replace(new RegExp(`<@!?${message.client.user!.id}>`, 'g'), '').trim();
 	}
 
-	if (!userMessage.trim()) {
-		if (message.attachments.size > 0) {
-			userMessage = 'shared attachments without any text. Describe them briefly and respond naturally.';
-		} else {
-			userMessage = 'pinged you without adding any text. Continue the conversation based on their recent messages.';
-		}
-	}
+	if (userMessage.trim()) return userMessage.trim();
+	if (message.attachments.size > 0)
+		return 'shared attachments without any text. Describe them briefly and respond naturally.';
+	return 'pinged you without adding any text. Continue the conversation based on their recent messages.';
+}
 
+async function handleCustomCommandResponse(message: Message, userMessage: string): Promise<boolean> {
 	const customResponse = await executeCustomCommand(message.guildId || '', userMessage);
-	if (customResponse) {
-		try {
-			await message.reply(customResponse);
-		} catch (error) {
-			console.error('Error sending custom command response:', error);
-		}
-		return;
+	if (!customResponse) return false;
+	try {
+		await message.reply(customResponse);
+	} catch (error) {
+		console.error('Error sending custom command response:', error);
 	}
+	return true;
+}
 
-	let reactionAdded = false;
+async function addThinkingReactionSafely(message: Message): Promise<boolean> {
 	try {
 		await message.react('🤔');
-		reactionAdded = true;
+		return true;
 	} catch (error) {
 		console.error('Error adding thinking reaction:', error);
+		return false;
 	}
+}
 
-	try {
-		const config = createAIConfig(getCachedSettings(), [tools]);
-		const modelName = 'gemini-flash-latest';
+function buildContextualMessage(message: Message, userMessage: string): string {
+	const channelName = getChannelName(message);
+	const userName = message.author.username;
+	const displayName = message.member?.displayName || message.author.displayName || userName;
+	const userId = message.author.id;
 
-		const channelName = getChannelName(message);
-		const userName = message.author.username;
-		const displayName = message.member?.displayName || message.author.displayName || userName;
-		const userId = message.author.id;
-
-		const contextualMessage = `Current channel: ${channelName} (ID: ${message.channelId})
+	return `Current channel: ${channelName} (ID: ${message.channelId})
 Current user: ${displayName} (@${userName}, ID: ${userId})
 
 🎯 **CURRENT USER REQUEST (MOST IMPORTANT - ANSWER THIS):**
@@ -207,118 +203,106 @@ User @${userName} says: ${userMessage}
 - NEVER state information that isn't in the actual response data
 - If uncertain, say "according to [source]" or acknowledge limitations
 - Double-check dates, numbers, and specific claims before stating them as fact`;
+}
 
-		const textChannel = message.channel as TextChannel;
-		const fetchedMessages = await textChannel.messages.fetch({ limit: 10, before: message.id });
-		const messagesArray = Array.from(fetchedMessages.values())
-			.sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-			.slice(-6);
+async function buildConversation(
+	message: Message,
+	aiClient: GoogleGenAI,
+	userMessage: string,
+): Promise<Array<{ role: 'user' | 'model'; parts: ConversationPart[] }>> {
+	const contextualMessage = buildContextualMessage(message, userMessage);
 
-		const historyEntries = await Promise.all(
-			messagesArray.map((msg) => createConversationEntryFromMessage(msg, aiClient, userId)),
-		);
-		const conversationHistory = historyEntries.filter((entry): entry is ConversationHistoryEntry => entry !== null);
-		const contextualParts: ConversationPart[] = [{ text: contextualMessage }];
-		const conversation = buildConversationContext(contextualParts, conversationHistory);
+	if (!message.channel?.isTextBased()) {
+		return buildConversationContext([{ text: contextualMessage }], []);
+	}
 
+	const textChannel = message.channel as TextChannel;
+	const fetchedMessages = await textChannel.messages.fetch({ limit: 10, before: message.id });
+	const messagesArray = Array.from(fetchedMessages.values())
+		.sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+		.slice(-6);
+
+	const historyEntries = await Promise.all(
+		messagesArray.map((msg) => createConversationEntryFromMessage(msg, aiClient, message.author.id)),
+	);
+	const conversationHistory = historyEntries.filter((entry): entry is ConversationHistoryEntry => entry !== null);
+	const contextualParts: ConversationPart[] = [{ text: contextualMessage }];
+	return buildConversationContext(contextualParts, conversationHistory);
+}
+
+async function cleanupChecklist(checklistMessage: Message | null): Promise<void> {
+	if (!checklistMessage) return;
+	try {
+		await checklistMessage.delete();
+	} catch (error) {
+		console.error('Failed to delete checklist message:', error);
+	}
+}
+
+async function respondWithError(message: Message, error: unknown, reactionAdded: boolean): Promise<void> {
+	const { messageExists, channelExists, targetChannel } = await checkMessageAndChannelAccess(message);
+	if (!targetChannel) return;
+
+	let errorContext = 'general error';
+	let errorDetails = '';
+	let statusCode: number | null = null;
+
+	if (error && typeof error === 'object' && 'status' in error) {
+		statusCode = (error as any).status;
+	}
+
+	if (error instanceof Error) {
+		errorContext = error.message;
+		errorDetails = error.stack || '';
+	}
+
+	let errorResponse = `I ran into a ${errorContext}.`;
+	if (statusCode) errorResponse += ` Status code: ${statusCode}.`;
+	if (errorDetails) errorResponse += ` Details: ${errorDetails.slice(0, 500)}`;
+
+	await sendResponseMessage(message, errorResponse, messageExists, channelExists, targetChannel);
+
+	if (reactionAdded) {
+		try {
+			await message.reactions.cache.get('🤔')?.users.remove(discordClient.user!.id);
+		} catch (cleanupError) {
+			console.error('Error removing thinking reaction after failure:', cleanupError);
+		}
+	}
+}
+
+export async function handleMessage(message: Message, aiClient: GoogleGenAI): Promise<void> {
+	if (!shouldProcessMessage(message)) return;
+
+	const userMessage = normalizeUserMessageInput(message);
+	if (await handleCustomCommandResponse(message, userMessage)) return;
+
+	const reactionAdded = await addThinkingReactionSafely(message);
+
+	try {
+		const config = createAIConfig(getCachedSettings(), [tools]);
+		const conversation = await buildConversation(message, aiClient, userMessage);
 		const checklistMessageRef = { current: null as Message | null };
-
 		const newChannelIdRef = { current: null as string | null };
-		const { responseText } = await processAIResponse(
+		const modelName = 'gemini-flash-latest';
+
+		const { responseText } = await processAIResponse({
 			aiClient,
 			modelName,
 			config,
 			conversation,
 			message,
-			userMessage,
+			latestUserMessage: userMessage,
 			checklistMessageRef,
 			newChannelIdRef,
-		);
+		});
+
 		newChannelIdFromPurge = newChannelIdRef.current;
-
 		console.log('Final response text:', responseText);
-
-		if (checklistMessageRef.current) {
-			try {
-				await checklistMessageRef.current.delete();
-			} catch (error) {
-				console.error('Failed to delete checklist message:', error);
-			}
-		}
-
+		await cleanupChecklist(checklistMessageRef.current);
 		await sendFinalResponse(message, responseText, reactionAdded);
 	} catch (error) {
 		console.error('Error:', error);
-		const { messageExists, channelExists, targetChannel } = await checkMessageAndChannelAccess(message);
-
-		if (targetChannel) {
-			let errorContext = 'general error';
-			let errorDetails = '';
-			let statusCode: number | null = null;
-
-			if (error && typeof error === 'object' && 'status' in error) {
-				statusCode = (error as any).status;
-				if (statusCode === 502 || statusCode === 503 || statusCode === 504) {
-					errorContext = 'temporary server error';
-					errorDetails = 'AI service connection issue';
-				} else if (statusCode === 429) {
-					errorContext = 'rate limit';
-					errorDetails = 'too many requests';
-				} else if (statusCode && statusCode >= 500) {
-					errorContext = 'server error';
-					errorDetails = 'AI service experiencing issues';
-				} else if (statusCode === 401 || statusCode === 403) {
-					errorContext = 'authentication error';
-					errorDetails = 'API key configuration issue';
-					console.error('CRITICAL: API authentication error. Check your API key configuration.');
-				}
-			}
-
-			let errorMessage = 'Sorry, I encountered an error processing your message.';
-
-			if (statusCode === 503) {
-				errorMessage =
-					"🔥 The AI service is currently overloaded. I've tried multiple times but couldn't get through. Please try again in a few moments!";
-			} else if (statusCode === 429) {
-				errorMessage = "⏱️ Slow down there! I'm hitting rate limits. Give me a moment and try again.";
-			} else if (statusCode === 502 || statusCode === 504) {
-				errorMessage = '🌐 Connection timeout. The AI service is having a moment. Try again shortly!';
-			} else if (statusCode === 401 || statusCode === 403) {
-				errorMessage = '🔒 Authentication issue detected. This is a configuration problem on my end.';
-			} else {
-				try {
-					const errorResponse = await aiClient.models.generateContent({
-						model: 'gemini-flash-latest',
-						contents: [
-							{
-								role: 'user',
-								parts: [
-									{
-										text: `Generate a unique, friendly error message for: ${errorContext}. Context: ${errorDetails}. Keep it 1-2 sentences, casual tone, include a relevant emoji. Make it different each time.`,
-									},
-								],
-							},
-						],
-					});
-
-					const generatedError = errorResponse.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-					if (generatedError) {
-						errorMessage = generatedError;
-					}
-				} catch (aiError) {
-					console.error('Failed to generate error message with AI:', aiError);
-				}
-			}
-
-			await sendResponseMessage(message, errorMessage, messageExists, channelExists, targetChannel);
-		}
-
-		if (reactionAdded) {
-			try {
-				await message.reactions.cache.get('🤔')?.users.remove(discordClient.user!.id);
-			} catch (err) {
-				console.error('Error removing thinking reaction on error:', err);
-			}
-		}
+		await respondWithError(message, error, reactionAdded);
 	}
 }
