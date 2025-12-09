@@ -13,10 +13,14 @@ export const appConfig = {
 		settings: 'data/settings.json',
 		commands: 'dist/commands/',
 		events: 'dist/events/',
+		data: 'data',
+		logs: 'logs',
+		events_logs: 'logs/events',
 	},
 
 	discord: {
 		restVersion: '10',
+		defaultTimeout: 30000,
 	},
 
 	logging: {
@@ -26,5 +30,11 @@ export const appConfig = {
 			info: 'INFO',
 			debug: 'DEBUG',
 		},
+		enabled: true,
+	},
+
+	ai: {
+		maxFunctionRounds: 5,
+		maxRetries: 3,
 	},
 } as const;
