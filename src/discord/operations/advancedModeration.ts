@@ -28,25 +28,29 @@ async function saveWarnings(warnings: Record<string, any[]>): Promise<void> {
 	await writeFile(WARNINGS_FILE, JSON.stringify(warnings, null, 2));
 }
 
+async function resolveMember(guild: any, user: string): Promise<GuildMember | undefined> {
+	if (!user) return undefined;
+
+	// Attempt direct fetch by ID if it looks like one
+	if (/^\d{17,19}$/.test(user)) {
+		const fetched = await guild.members.fetch(user).catch(() => undefined);
+		if (fetched) return fetched;
+	}
+
+	// Fallback to cache search by username or display name
+	return guild.members.cache.find(
+		(m: GuildMember) =>
+			m.user.username.toLowerCase() === user.toLowerCase() || m.displayName.toLowerCase() === user.toLowerCase(),
+	);
+}
+
 export async function warnUser({ server, user, reason, moderator }: WarnUserData): Promise<string> {
 	const guild = await findServer(server);
 
 	try {
-		let member: GuildMember | undefined;
-		if (/^\d{17,19}$/.test(user)) {
-			member = await guild.members.fetch(user).catch(() => undefined);
-		}
+		const member = await resolveMember(guild, user);
 
-		if (!member) {
-			member = guild.members.cache.find(
-				(m) =>
-					m.user.username.toLowerCase() === user.toLowerCase() || m.displayName.toLowerCase() === user.toLowerCase(),
-			);
-		}
-
-		if (!member) {
-			return JSON.stringify({ error: 'user_not_found', user });
-		}
+		if (!member) return JSON.stringify({ error: 'user_not_found', user });
 
 		const warnings = await loadWarnings();
 		const userId = member.user.id;
@@ -83,21 +87,9 @@ export async function listWarnings({ server, user }: ListWarningsData): Promise<
 	const guild = await findServer(server);
 
 	try {
-		let member: GuildMember | undefined;
-		if (/^\d{17,19}$/.test(user)) {
-			member = await guild.members.fetch(user).catch(() => undefined);
-		}
+		const member = await resolveMember(guild, user);
 
-		if (!member) {
-			member = guild.members.cache.find(
-				(m) =>
-					m.user.username.toLowerCase() === user.toLowerCase() || m.displayName.toLowerCase() === user.toLowerCase(),
-			);
-		}
-
-		if (!member) {
-			return JSON.stringify({ error: 'user_not_found', user });
-		}
+		if (!member) return JSON.stringify({ error: 'user_not_found', user });
 
 		const warnings = await loadWarnings();
 		const userId = member.user.id;
@@ -118,21 +110,9 @@ export async function clearWarnings({ server, user, warningId }: ClearWarningsDa
 	const guild = await findServer(server);
 
 	try {
-		let member: GuildMember | undefined;
-		if (/^\d{17,19}$/.test(user)) {
-			member = await guild.members.fetch(user).catch(() => undefined);
-		}
+		const member = await resolveMember(guild, user);
 
-		if (!member) {
-			member = guild.members.cache.find(
-				(m) =>
-					m.user.username.toLowerCase() === user.toLowerCase() || m.displayName.toLowerCase() === user.toLowerCase(),
-			);
-		}
-
-		if (!member) {
-			return JSON.stringify({ error: 'user_not_found', user });
-		}
+		if (!member) return JSON.stringify({ error: 'user_not_found', user });
 
 		const warnings = await loadWarnings();
 		const userId = member.user.id;
