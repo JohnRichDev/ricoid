@@ -227,6 +227,51 @@ export async function lockChannel({ server, channel, locked }: LockChannelData):
 	}
 }
 
+function filterMembersToKick(members: any, criteria: string): any[] {
+	const toKick: any[] = [];
+	for (const member of members.values()) {
+		if (member.user.bot && criteria === 'bots') {
+			toKick.push(member);
+		} else if (criteria === 'no_roles' && member.roles.cache.size === 1) {
+			toKick.push(member);
+		}
+	}
+	return toKick;
+}
+
+async function performMassKick(members: any[], reason?: string): Promise<string[]> {
+	const kicked = [];
+	for (const member of members) {
+		try {
+			await member.kick(reason || 'Mass kick operation');
+			kicked.push(member.user.username);
+		} catch {
+			continue;
+		}
+	}
+	return kicked;
+}
+
+async function performMassBan(
+	guild: any,
+	userIds: string[],
+	reason?: string,
+): Promise<{ banned: string[]; failed: string[] }> {
+	const banned = [];
+	const failed = [];
+
+	for (const userId of userIds) {
+		try {
+			await guild.members.ban(userId, { reason: reason || 'Mass ban operation' });
+			banned.push(userId);
+		} catch (error) {
+			failed.push(userId);
+		}
+	}
+
+	return { banned, failed };
+}
+
 export async function massKick({ server, criteria, reason }: MassKickData): Promise<string> {
 	const guild = await findServer(server);
 
@@ -234,25 +279,9 @@ export async function massKick({ server, criteria, reason }: MassKickData): Prom
 		await guild.members.fetch();
 		const members = guild.members.cache;
 
-		const toKick: GuildMember[] = [];
+		const toKick = filterMembersToKick(members, criteria);
 
-		for (const member of members.values()) {
-			if (member.user.bot && criteria === 'bots') {
-				toKick.push(member);
-			} else if (criteria === 'no_roles' && member.roles.cache.size === 1) {
-				toKick.push(member);
-			}
-		}
-
-		const kicked = [];
-		for (const member of toKick) {
-			try {
-				await member.kick(reason || 'Mass kick operation');
-				kicked.push(member.user.username);
-			} catch {
-				continue;
-			}
-		}
+		const kicked = await performMassKick(toKick, reason);
 
 		return JSON.stringify({
 			action: 'mass_kick',
@@ -270,17 +299,7 @@ export async function massBan({ server, userIds, reason }: MassBanData): Promise
 	const guild = await findServer(server);
 
 	try {
-		const banned = [];
-		const failed = [];
-
-		for (const userId of userIds) {
-			try {
-				await guild.members.ban(userId, { reason: reason || 'Mass ban operation' });
-				banned.push(userId);
-			} catch {
-				failed.push(userId);
-			}
-		}
+		const { banned, failed } = await performMassBan(guild, userIds, reason);
 
 		return JSON.stringify({
 			action: 'mass_ban',
