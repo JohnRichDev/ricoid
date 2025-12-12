@@ -7,34 +7,75 @@ import type {
 } from '../../types/index.js';
 import { findServer, findTextChannel } from './core.js';
 import type { Collection, Message } from 'discord.js';
+import { DISCORD_LIMITS } from '../../util/constants.js';
+
+const HOURS_IN_DAY = 24;
+const DAYS_IN_WEEK = 7;
+
+function processHeatmapMessages(
+	messages: Collection<string, Message>,
+	cutoffDate: Date,
+	hourCounts: number[],
+	dayCounts: number[],
+) {
+	let processed = 0;
+	for (const msg of messages.values()) {
+		if (msg.createdAt < cutoffDate) return { processed, stop: true };
+		const hour = msg.createdAt.getHours();
+		const day = msg.createdAt.getDay();
+		hourCounts[hour]++;
+		dayCounts[day]++;
+		processed++;
+	}
+	return { processed, stop: false };
+}
+
+function processTopPostersMessages(
+	messages: Collection<string, Message>,
+	cutoffDate: Date,
+	userCounts: Record<string, { username: string; count: number; totalLength: number }>,
+) {
+	let processed = 0;
+	for (const msg of messages.values()) {
+		if (msg.createdAt < cutoffDate) return { processed, stop: true };
+
+		const userId = msg.author.id;
+		if (!userCounts[userId]) {
+			userCounts[userId] = {
+				username: msg.author.username,
+				count: 0,
+				totalLength: 0,
+			};
+		}
+
+		userCounts[userId].count++;
+		userCounts[userId].totalLength += msg.content.length;
+		processed++;
+	}
+
+	return { processed, stop: false };
+}
 
 export async function messageHeatmap({ server, channel, days = 7 }: MessageHeatmapData): Promise<string> {
 	const textChannel = await findTextChannel(channel, server);
 
 	try {
-		const hourCounts = new Array(24).fill(0);
-		const dayCounts = new Array(7).fill(0);
+		const hourCounts = new Array(HOURS_IN_DAY).fill(0);
+		const dayCounts = new Array(DAYS_IN_WEEK).fill(0);
 		const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-
 		let lastId: string | undefined;
 		let totalMessages = 0;
 
-		while (totalMessages < 1000) {
-			const fetchOptions: any = { limit: 100 };
+		while (totalMessages < DISCORD_LIMITS.ANALYTICS_HEATMAP_MAX_MESSAGES) {
+			const fetchOptions: any = { limit: DISCORD_LIMITS.MESSAGE_FETCH_LIMIT };
 			if (lastId) fetchOptions.before = lastId;
 
 			const messages = (await textChannel.messages.fetch(fetchOptions)) as unknown as Collection<string, Message>;
 			if (messages.size === 0) break;
 
-			for (const msg of messages.values()) {
-				if (msg.createdAt < cutoffDate) break;
-
-				const hour = msg.createdAt.getHours();
-				const day = msg.createdAt.getDay();
-				hourCounts[hour]++;
-				dayCounts[day]++;
-				totalMessages++;
-			}
+			const { processed, stop } = processHeatmapMessages(messages, cutoffDate, hourCounts, dayCounts);
+			totalMessages += processed;
+			if (stop) break;
 
 			const lastMessage = messages.last();
 			lastId = lastMessage?.id;
@@ -66,29 +107,16 @@ export async function topPosters({ server, channel, limit = 10, days = 7 }: TopP
 		let lastId: string | undefined;
 		let totalMessages = 0;
 
-		while (totalMessages < 2000) {
-			const fetchOptions: any = { limit: 100 };
+		while (totalMessages < DISCORD_LIMITS.ANALYTICS_MAX_MESSAGES) {
+			const fetchOptions: any = { limit: DISCORD_LIMITS.MESSAGE_FETCH_LIMIT };
 			if (lastId) fetchOptions.before = lastId;
 
 			const messages = (await textChannel.messages.fetch(fetchOptions)) as unknown as Collection<string, Message>;
 			if (messages.size === 0) break;
 
-			for (const msg of messages.values()) {
-				if (msg.createdAt < cutoffDate) break;
-
-				const userId = msg.author.id;
-				if (!userCounts[userId]) {
-					userCounts[userId] = {
-						username: msg.author.username,
-						count: 0,
-						totalLength: 0,
-					};
-				}
-
-				userCounts[userId].count++;
-				userCounts[userId].totalLength += msg.content.length;
-				totalMessages++;
-			}
+			const { processed, stop } = processTopPostersMessages(messages, cutoffDate, userCounts);
+			totalMessages += processed;
+			if (stop) break;
 
 			const lastMessage = messages.last();
 			lastId = lastMessage?.id;
