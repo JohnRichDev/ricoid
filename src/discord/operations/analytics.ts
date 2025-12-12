@@ -143,6 +143,62 @@ export async function topPosters({ server, channel, limit = 10, days = 7 }: TopP
 	}
 }
 
+function processCustomEmojis(
+	content: string,
+	emojiCounts: Record<string, { name: string; count: number; isCustom: boolean }>,
+): void {
+	const customEmojiRegex = /<a?:\w+:(\d+)>/g;
+	const customMatches = content.match(customEmojiRegex);
+
+	if (customMatches) {
+		for (const match of customMatches) {
+			if (!emojiCounts[match]) {
+				emojiCounts[match] = { name: match, count: 0, isCustom: true };
+			}
+			emojiCounts[match].count++;
+		}
+	}
+}
+
+function processReactionEmojis(
+	reactions: any,
+	emojiCounts: Record<string, { name: string; count: number; isCustom: boolean }>,
+): void {
+	for (const reaction of reactions.cache.values()) {
+		const key = reaction.emoji.id || reaction.emoji.name || 'unknown';
+		const name = reaction.emoji.name || 'unknown';
+
+		if (!emojiCounts[key]) {
+			emojiCounts[key] = { name, count: 0, isCustom: !!reaction.emoji.id };
+		}
+		emojiCounts[key].count += reaction.count;
+	}
+}
+
+function processChannelMessages(
+	messages: any,
+	cutoffDate: Date,
+	emojiCounts: Record<string, { name: string; count: number; isCustom: boolean }>,
+): void {
+	for (const msg of messages.values()) {
+		if (msg.createdAt < cutoffDate) continue;
+		processCustomEmojis(msg.content, emojiCounts);
+		processReactionEmojis(msg.reactions, emojiCounts);
+	}
+}
+
+function processChannelActivity(
+	messages: any,
+	cutoffDate: Date,
+	channelData: { messages: number; activeUsers: Set<string> },
+): void {
+	for (const msg of messages.values()) {
+		if (msg.createdAt < cutoffDate) continue;
+		channelData.messages++;
+		channelData.activeUsers.add(msg.author.id);
+	}
+}
+
 export async function emojiStats({ server, days = 7 }: EmojiStatsData): Promise<string> {
 	const guild = await findServer(server);
 
