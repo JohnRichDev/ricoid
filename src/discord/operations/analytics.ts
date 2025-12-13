@@ -209,33 +209,8 @@ export async function emojiStats({ server, days = 7 }: EmojiStatsData): Promise<
 		for (const channel of guild.channels.cache.values()) {
 			if (channel.isTextBased() && 'messages' in channel) {
 				try {
-					const messages = await channel.messages.fetch({ limit: 100 });
-
-					for (const msg of messages.values()) {
-						if (msg.createdAt < cutoffDate) continue;
-
-						const customEmojiRegex = /<a?:\w+:(\d+)>/g;
-						const customMatches = msg.content.match(customEmojiRegex);
-
-						if (customMatches) {
-							for (const match of customMatches) {
-								if (!emojiCounts[match]) {
-									emojiCounts[match] = { name: match, count: 0, isCustom: true };
-								}
-								emojiCounts[match].count++;
-							}
-						}
-
-						for (const reaction of msg.reactions.cache.values()) {
-							const key = reaction.emoji.id || reaction.emoji.name || 'unknown';
-							const name = reaction.emoji.name || 'unknown';
-
-							if (!emojiCounts[key]) {
-								emojiCounts[key] = { name, count: 0, isCustom: !!reaction.emoji.id };
-							}
-							emojiCounts[key].count += reaction.count;
-						}
-					}
+					const messages = await channel.messages.fetch({ limit: DISCORD_LIMITS.MESSAGE_FETCH_LIMIT });
+					processChannelMessages(messages, cutoffDate, emojiCounts);
 				} catch {
 					continue;
 				}
@@ -244,7 +219,7 @@ export async function emojiStats({ server, days = 7 }: EmojiStatsData): Promise<
 
 		const sorted = Object.values(emojiCounts)
 			.sort((a, b) => b.count - a.count)
-			.slice(0, 20);
+			.slice(0, DISCORD_LIMITS.EMOJI_STATS_TOP_LIMIT);
 
 		return JSON.stringify({
 			server: guild.name,
@@ -272,14 +247,8 @@ export async function channelActivity({ server, days = 7 }: ChannelActivityData)
 						activeUsers: new Set(),
 					};
 
-					const messages = await channel.messages.fetch({ limit: 100 });
-
-					for (const msg of messages.values()) {
-						if (msg.createdAt < cutoffDate) continue;
-
-						channelCounts[channel.id].messages++;
-						channelCounts[channel.id].activeUsers.add(msg.author.id);
-					}
+					const messages = await channel.messages.fetch({ limit: DISCORD_LIMITS.MESSAGE_FETCH_LIMIT });
+					processChannelActivity(messages, cutoffDate, channelCounts[channel.id]);
 				} catch {
 					continue;
 				}
