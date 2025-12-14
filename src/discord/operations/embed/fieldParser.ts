@@ -14,7 +14,7 @@ export function setString(value: unknown): string | null {
 		try {
 			return JSON.stringify(value);
 		} catch {
-			return null;
+			return '[object Object]';
 		}
 	}
 	const stringValue = String(value).trim();
