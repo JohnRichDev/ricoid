@@ -1,5 +1,6 @@
 import { Guild, TextChannel } from 'discord.js';
 import { discordClient } from '../client.js';
+import { DISCORD_SNOWFLAKE_REGEX } from '../../util/constants.js';
 
 export function getChannelTypeDisplayName(channelType: number): string {
 	switch (channelType) {
@@ -75,7 +76,7 @@ async function tryFetchServerById(serverId: string): Promise<Guild | undefined> 
 }
 
 async function findServerByChannelId(serverId: string): Promise<Guild | undefined> {
-	if (!/^\d{17,19}$/.test(serverId)) {
+	if (!DISCORD_SNOWFLAKE_REGEX.test(serverId)) {
 		return undefined;
 	}
 
@@ -127,7 +128,7 @@ export async function findServer(serverId?: string): Promise<Guild> {
 export async function findTextChannel(channelId: string, serverId?: string): Promise<TextChannel> {
 	const server = await findServer(serverId);
 
-	if (/^\d{17,19}$/.test(channelId)) {
+	if (DISCORD_SNOWFLAKE_REGEX.test(channelId)) {
 		try {
 			const channel = await discordClient.channels.fetch(channelId);
 			if (channel instanceof TextChannel) {
