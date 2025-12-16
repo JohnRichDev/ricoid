@@ -9,6 +9,89 @@ import { findTextChannel } from './core.js';
 import type { Collection, Message } from 'discord.js';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
+import { DISCORD_LIMITS } from '../../util/constants.js';
+
+function filterMessages(messages: any[], query?: string, author?: string): any[] {
+	return messages.filter((msg) => {
+		const matchesQuery = !query || msg.content.toLowerCase().includes(query.toLowerCase());
+		const matchesAuthor = !author || msg.author.username.toLowerCase().includes(author.toLowerCase());
+		return matchesQuery && matchesAuthor;
+	});
+}
+
+function mapMessageToResult(m: any) {
+	return {
+		id: m.id,
+		content: m.content,
+		author: m.author.username,
+		timestamp: m.createdAt.toISOString(),
+		url: m.url,
+	};
+}
+
+function mapMessageToExportData(m: any) {
+	return {
+		id: m.id,
+		author: m.author.username,
+		authorId: m.author.id,
+		content: m.content,
+		timestamp: m.createdAt.toISOString(),
+		attachments: m.attachments.map((a: any) => a.url),
+		embeds: m.embeds.length,
+		reactions: m.reactions.cache.map((r: any) => ({ emoji: r.emoji.name, count: r.count })),
+	};
+}
+
+function formatMessageAsText(m: any): string {
+	return `[${m.timestamp}] ${m.author}: ${m.content}`;
+}
+
+function shouldPinMessage(msg: any, minReactions?: number, authorId?: string, containsText?: string): boolean {
+	const matchesReactions =
+		!minReactions || msg.reactions.cache.reduce((sum: number, r: any) => sum + r.count, 0) >= minReactions;
+	const matchesAuthor = !authorId || msg.author.id === authorId;
+	const matchesText = !containsText || msg.content.toLowerCase().includes(containsText.toLowerCase());
+	return matchesReactions && matchesAuthor && matchesText;
+}
+
+async function fetchPaginatedMessages(textChannel: any, maxMessages: number, cutoffDate?: Date) {
+	const results: any[] = [];
+	let lastId: string | undefined;
+
+	while (results.length < maxMessages) {
+		const fetchOptions: any = { limit: 100 };
+		if (lastId) fetchOptions.before = lastId;
+
+		const fetched = (await textChannel.messages.fetch(fetchOptions)) as unknown as Collection<string, Message>;
+		if (fetched.size === 0) break;
+
+		for (const msg of fetched.values()) {
+			if (cutoffDate && msg.createdAt < cutoffDate) return results;
+			results.push(msg);
+			if (results.length >= maxMessages) break;
+		}
+
+		lastId = fetched.last()?.id;
+	}
+
+	return results;
+}
+
+async function processSingleMessageEdit(
+	textChannel: any,
+	messageId: string,
+): Promise<{ id: string; success: boolean; error?: string }> {
+	try {
+		const message = await textChannel.messages.fetch(messageId);
+		if (message.author.id !== textChannel.client.user?.id) {
+			return { id: messageId, success: false, error: 'not_bot_message' };
+		}
+		return { id: messageId, success: true };
+	} catch (error: unknown) {
+		const errorMessage = error instanceof Error ? error.message : 'fetch_failed';
+		return { id: messageId, success: false, error: errorMessage };
+	}
+}
 
 export async function bulkEditMessages({
 	server,
@@ -21,17 +104,12 @@ export async function bulkEditMessages({
 	try {
 		const results = [];
 		for (const messageId of messageIds) {
-			try {
+			const result = await processSingleMessageEdit(textChannel, messageId);
+			if (result.success) {
 				const message = await textChannel.messages.fetch(messageId);
-				if (message.author.id === textChannel.client.user?.id) {
-					await message.edit(newContent);
-					results.push({ id: messageId, success: true });
-				} else {
-					results.push({ id: messageId, success: false, error: 'not_bot_message' });
-				}
-			} catch (error) {
-				results.push({ id: messageId, success: false, error: 'fetch_failed' });
+				await message.edit(newContent);
 			}
+			results.push(result);
 		}
 
 		return JSON.stringify({
@@ -54,38 +132,12 @@ export async function searchMessages({
 	const textChannel = await findTextChannel(channel, server);
 
 	try {
-		const messages: Message[] = [];
-		let lastId: string | undefined;
-		const maxMessages = Math.min(limit, 500);
+		const maxMessages = Math.min(limit, DISCORD_LIMITS.SEARCH_MESSAGES_MAX_LIMIT);
+		const messages = await fetchPaginatedMessages(textChannel, maxMessages);
 
-		while (messages.length < maxMessages) {
-			const fetchOptions: any = { limit: 100 };
-			if (lastId) fetchOptions.before = lastId;
+		const filtered = filterMessages(messages, query, author);
 
-			const fetched = (await textChannel.messages.fetch(fetchOptions)) as unknown as Collection<string, Message>;
-			if (fetched.size === 0) break;
-
-			for (const msg of fetched.values()) {
-				const matchesQuery = !query || msg.content.toLowerCase().includes(query.toLowerCase());
-				const matchesAuthor = !author || msg.author.username.toLowerCase().includes(author.toLowerCase());
-
-				if (matchesQuery && matchesAuthor) {
-					messages.push(msg);
-					if (messages.length >= maxMessages) break;
-				}
-			}
-
-			lastId = fetched.last()?.id;
-			if (messages.length >= maxMessages) break;
-		}
-
-		const results = messages.map((m) => ({
-			id: m.id,
-			content: m.content,
-			author: m.author.username,
-			timestamp: m.createdAt.toISOString(),
-			url: m.url,
-		}));
+		const results = filtered.map(mapMessageToResult);
 
 		return JSON.stringify({ found: results.length, messages: results });
 	} catch (error) {
@@ -103,18 +155,13 @@ export async function pinAllMessages({
 	const textChannel = await findTextChannel(channel, server);
 
 	try {
-		const messages = await textChannel.messages.fetch({ limit: 100 });
+		const messages = await textChannel.messages.fetch({ limit: DISCORD_LIMITS.MESSAGE_FETCH_LIMIT });
 		const pinned = [];
 
 		for (const msg of messages.values()) {
 			if (msg.pinned) continue;
 
-			const matchesReactions =
-				!minReactions || msg.reactions.cache.reduce((sum, r) => sum + r.count, 0) >= minReactions;
-			const matchesAuthor = !authorId || msg.author.id === authorId;
-			const matchesText = !containsText || msg.content.toLowerCase().includes(containsText.toLowerCase());
-
-			if (matchesReactions && matchesAuthor && matchesText) {
+			if (shouldPinMessage(msg, minReactions, authorId, containsText)) {
 				try {
 					await msg.pin();
 					pinned.push(msg.id);
@@ -139,33 +186,9 @@ export async function exportMessages({
 	const textChannel = await findTextChannel(channel, server);
 
 	try {
-		let lastId: string | undefined;
-		const messages: any[] = [];
+		const messages = await fetchPaginatedMessages(textChannel, limit);
 
-		while (messages.length < limit) {
-			const fetchOptions: any = { limit: 100 };
-			if (lastId) fetchOptions.before = lastId;
-
-			const fetched = (await textChannel.messages.fetch(fetchOptions)) as unknown as Collection<string, Message>;
-			if (fetched.size === 0) break;
-
-			messages.push(...Array.from(fetched.values()));
-			const lastMessage = fetched.last();
-			lastId = lastMessage?.id;
-
-			if (messages.length >= limit) break;
-		}
-
-		const data = messages.reverse().map((m: any) => ({
-			id: m.id,
-			author: m.author.username,
-			authorId: m.author.id,
-			content: m.content,
-			timestamp: m.createdAt.toISOString(),
-			attachments: m.attachments.map((a: any) => a.url),
-			embeds: m.embeds.length,
-			reactions: m.reactions.cache.map((r: any) => ({ emoji: r.emoji.name, count: r.count })),
-		}));
+		const data = messages.toReversed().map(mapMessageToExportData);
 
 		const filename = `export_${textChannel.name}_${Date.now()}.${format}`;
 		const filepath = join(process.cwd(), 'data', filename);
@@ -173,7 +196,7 @@ export async function exportMessages({
 		if (format === 'json') {
 			await writeFile(filepath, JSON.stringify(data, null, 2));
 		} else {
-			const textContent = data.map((m) => `[${m.timestamp}] ${m.author}: ${m.content}`).join('\n');
+			const textContent = data.map(formatMessageAsText).join('\n');
 			await writeFile(filepath, textContent);
 		}
 
@@ -193,8 +216,9 @@ export async function copyMessages({
 	const target = await findTextChannel(targetChannel, server);
 
 	try {
-		const messages = await source.messages.fetch({ limit: Math.min(limit, 100) });
-		const reversed = Array.from(messages.values()).reverse();
+		const messages = await source.messages.fetch({ limit: Math.min(limit, DISCORD_LIMITS.MESSAGE_FETCH_LIMIT) });
+		const reversed = Array.from(messages.values());
+		reversed.reverse();
 		let copied = 0;
 
 		for (const msg of reversed) {
