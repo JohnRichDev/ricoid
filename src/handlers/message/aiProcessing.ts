@@ -188,7 +188,7 @@ async function processSubsequentFunctionCalls(
 }
 
 function isRetriableError(error: any): { isRetriable: boolean; statusCode: number | null } {
-	const statusCode = error && typeof error === 'object' && 'status' in error ? (error as any).status : null;
+	const statusCode = error && typeof error === 'object' && 'status' in error ? error.status : null;
 	const isRetriable = statusCode === 502 || statusCode === 503 || statusCode === 504 || statusCode === 429;
 	return { isRetriable, statusCode };
 }
