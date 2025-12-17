@@ -12,6 +12,9 @@ import {
 import type { FunctionExecutionLogEntry } from './executionTypes.js';
 import { extractResponseText } from './conversation.js';
 
+const FALLBACK_MODEL = 'gemini-flash-latest';
+const FALLBACK_MAX_SENTENCES = 2;
+
 type FunctionResult = { name: string; result: any };
 
 type GenerateAIContentParams = {
@@ -44,13 +47,13 @@ type ProcessAIParams = {
 async function generateFallbackResponse(aiClient: GoogleGenAI, latestUserMessage: string): Promise<string> {
 	try {
 		const fallback = await aiClient.models.generateContent({
-			model: 'gemini-flash-latest',
+			model: FALLBACK_MODEL,
 			contents: [
 				{
 					role: 'user',
 					parts: [
 						{
-							text: `The previous response was empty. Provide a concise, helpful reply (max two sentences) to this request: ${latestUserMessage}`,
+							text: `The previous response was empty. Provide a concise, helpful reply (max ${FALLBACK_MAX_SENTENCES} sentences) to this request: ${latestUserMessage}`,
 						},
 					],
 				},
