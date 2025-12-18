@@ -106,12 +106,10 @@ function wrapCode(code: string): string {
 
 async function resolveResult(result: any): Promise<any> {
 	const isThenable =
-		result &&
-		(typeof result === 'object' || typeof result === 'function') &&
-		typeof (result as any).then === 'function';
+		result && (typeof result === 'object' || typeof result === 'function') && typeof result.then === 'function';
 
 	if (isThenable) {
-		return await (result as any);
+		return await result;
 	}
 	return result;
 }
@@ -140,11 +138,12 @@ function extractErrorMessage(error: unknown): string {
 	if (typeof error === 'string') {
 		return error;
 	}
-	if (error instanceof Error) {
-		return error.message;
-	}
 	if (error && typeof error === 'object') {
-		return JSON.stringify(error);
+		try {
+			return JSON.stringify(error);
+		} catch {
+			return '[Error object]';
+		}
 	}
 	return String(error);
 }
