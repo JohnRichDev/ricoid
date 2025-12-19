@@ -3,6 +3,12 @@ import { GoogleGenAI } from '@google/genai';
 import { addAttachmentParts } from './attachments.js';
 import type { ConversationHistoryEntry, ConversationPart } from './types.js';
 
+const MAX_RECENT_MESSAGES = 15;
+const MAX_RECENT_USER_MESSAGES = 5;
+const FUNCTION_CALL_PREFIX = 'Function ';
+const SAME_USER_PREFIX = '[SAME USER] ';
+const DIFFERENT_USER_PREFIX = '[DIFFERENT USER] ';
+
 function getTextFromPart(part: ConversationPart | undefined): string | null {
 	if (!part) {
 		return null;
@@ -32,7 +38,7 @@ export async function createConversationEntryFromMessage(
 	const isCurrentUser = message.author.id === currentUserId;
 	const author = message.author.username;
 	const trimmed = message.content.trim();
-	const prefix = isCurrentUser ? '[SAME USER] ' : '[DIFFERENT USER] ';
+	const prefix = isCurrentUser ? SAME_USER_PREFIX : DIFFERENT_USER_PREFIX;
 	if (trimmed) {
 		parts.push({ text: `${prefix}@${author}: ${trimmed}` });
 	} else if (message.attachments.size > 0) {
@@ -53,8 +59,8 @@ export function buildConversationContext(
 	conversationHistory: ConversationHistoryEntry[],
 ): Array<{ role: 'user' | 'model'; parts: ConversationPart[] }> {
 	const aiConfig = {
-		maxRecentMessages: 15,
-		functionCallPrefix: 'Function ',
+		maxRecentMessages: MAX_RECENT_MESSAGES,
+		functionCallPrefix: FUNCTION_CALL_PREFIX,
 		messages: {
 			previousContext: 'PREVIOUS CONVERSATION CONTEXT (READ THIS CAREFULLY):',
 			functionResults: 'Recent function call results (you can reference this data in your responses):',
@@ -83,7 +89,7 @@ export function buildConversationContext(
 				const firstPartText = getTextFromPart(msg.parts[0]);
 				return msg.role === 'user' && !firstPartText?.startsWith(aiConfig.functionCallPrefix);
 			})
-			.slice(-5);
+			.slice(-MAX_RECENT_USER_MESSAGES);
 
 		if (recentUserMessages.length > 0) {
 			contextMessage += '\n\nRecent user requests:';
