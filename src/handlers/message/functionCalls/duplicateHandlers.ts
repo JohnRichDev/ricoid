@@ -1,13 +1,15 @@
 import type { FunctionCallContext } from '../functionCalls.js';
-import { formatDuplicateMessage } from '../functionCalls.js';
-import { SINGLE_EXECUTION_FUNCTIONS } from '../functionCalls.js';
+import { formatDuplicateMessage, SINGLE_EXECUTION_FUNCTIONS } from '../functionCalls.js';
+
+const FUNCTION_LOG_PREFIX = '[FunctionAction]';
+const LOG_STRING_MAX_LENGTH = 300;
 
 function logFunctionAction(message: any, event: string, payload: Record<string, any>): void {
-	const FUNCTION_LOG_PREFIX = '[FunctionAction]';
 	const serializeForLog = (value: any): string => {
 		try {
 			return JSON.stringify(value, (_key, val) => {
-				if (typeof val === 'string' && val.length > 300) return `${val.slice(0, 300)}...`;
+				if (typeof val === 'string' && val.length > LOG_STRING_MAX_LENGTH)
+					return `${val.slice(0, LOG_STRING_MAX_LENGTH)}...`;
 				return val;
 			});
 		} catch {
