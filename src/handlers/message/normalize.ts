@@ -1,3 +1,5 @@
+const CURRENT_CHANNEL_KEYWORDS = ['this channel', 'current channel'];
+
 function setDefaultServer(args: any, messageGuildId?: string | null): void {
 	if (!args.server && messageGuildId) {
 		args.server = messageGuildId;
@@ -8,7 +10,7 @@ function normalizeChannelReference(args: any, messageChannelId: string, callName
 	if ('channel' in args) {
 		const channel = args.channel;
 		const isCurrentChannelRef =
-			!channel || channel.toLowerCase() === 'this channel' || channel.toLowerCase() === 'current channel';
+			!channel || CURRENT_CHANNEL_KEYWORDS.some((keyword) => channel.toLowerCase() === keyword);
 
 		if (isCurrentChannelRef) {
 			args.channel = messageChannelId;
