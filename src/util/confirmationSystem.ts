@@ -10,6 +10,10 @@ import {
 } from 'discord.js';
 import { discordClient } from '../discord/client.js';
 
+const DEFAULT_TIMEOUT_MS = 30000;
+const DEFAULT_COLOR = 0x0099ff;
+const DANGEROUS_COLOR = 0xff0000;
+
 export interface ConfirmationConfig {
 	title: string;
 	description: string;
@@ -35,8 +39,8 @@ const DEFAULT_CONFIG: Partial<ConfirmationConfig> = {
 	cancelButtonLabel: 'Cancel',
 	confirmButtonStyle: ButtonStyle.Primary,
 	cancelButtonStyle: ButtonStyle.Secondary,
-	timeout: 30000,
-	color: 0x0099ff,
+	timeout: DEFAULT_TIMEOUT_MS,
+	color: DEFAULT_COLOR,
 };
 
 const DANGEROUS_CONFIG: Partial<ConfirmationConfig> = {
@@ -44,8 +48,8 @@ const DANGEROUS_CONFIG: Partial<ConfirmationConfig> = {
 	cancelButtonLabel: 'Cancel',
 	confirmButtonStyle: ButtonStyle.Danger,
 	cancelButtonStyle: ButtonStyle.Secondary,
-	timeout: 30000,
-	color: 0xff0000,
+	timeout: DEFAULT_TIMEOUT_MS,
+	color: DANGEROUS_COLOR,
 };
 
 export async function createConfirmation(
