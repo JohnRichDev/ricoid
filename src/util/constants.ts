@@ -35,3 +35,17 @@ export const REMINDER_MAX_DELAY_MS = 2147483647;
 export const HEX_COLOR_REGEX = /^#?[0-9A-Fa-f]{6}$/;
 
 export const IMAGE_URL_REGEX = /^https?:\/\/.+\.(png|jpg|jpeg|gif|webp)(\?.*)?$/i;
+
+export const ERROR_MESSAGES = {
+	EMPTY_OBJECT: '[object Object]',
+	EMPTY_ERROR: '[Error object]',
+	STRINGIFICATION_FAILED: '[Stringification failed]',
+	MASS_BAN_FAILED_PREFIX: 'Failed to ban user',
+	MASS_KICK_FAILED_PREFIX: 'Failed to kick member',
+} as const;
+
+export const OPERATION_REASONS = {
+	MASS_BAN: 'Mass ban operation',
+	MASS_KICK: 'Mass kick operation',
+	AUTO_MODERATION: 'Automated moderation',
+} as const;
