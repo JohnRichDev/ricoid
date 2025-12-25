@@ -1,13 +1,14 @@
 import { Guild, TextChannel, PermissionFlagsBits } from 'discord.js';
 import { discordClient } from '../client.js';
 import { findServer, findTextChannel, findChannelByName, getChannelTypeDisplayName } from './core.js';
-import { validateMessageContent, parseHexColor } from '../../util/helpers.js';
+import { validateMessageContent, parseHexColor, safeStringifyObject } from '../../util/helpers.js';
 import {
 	DISCORD_LIMITS,
 	POLL_EMOJIS,
 	BULK_DELETE_MIN_AGE_MS,
 	BULK_DELETE_MAX_AGE_MS,
 	CHANNEL_TYPES,
+	ERROR_MESSAGES,
 } from '../../util/constants.js';
 import type {
 	MessageData,
@@ -60,11 +61,8 @@ function setString(value: unknown): string | null {
 		return null;
 	}
 	if (typeof value === 'object') {
-		try {
-			return JSON.stringify(value);
-		} catch {
-			return '[object Object]';
-		}
+		const result = safeStringifyObject(value);
+		return result !== ERROR_MESSAGES.EMPTY_OBJECT ? result : ERROR_MESSAGES.EMPTY_OBJECT;
 	}
 	const stringValue = String(value).trim();
 	return stringValue.length ? stringValue : null;
