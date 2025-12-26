@@ -1,3 +1,6 @@
+import { safeStringifyObject } from '../../../util/helpers.js';
+import { ERROR_MESSAGES } from '../../../util/constants.js';
+
 export function clampString(input: string, limit: number): string {
 	return input.length > limit ? `${input.slice(0, limit - 3)}...` : input;
 }
@@ -11,11 +14,8 @@ export function setString(value: unknown): string | null {
 		return null;
 	}
 	if (typeof value === 'object') {
-		try {
-			return JSON.stringify(value);
-		} catch {
-			return '[object Object]';
-		}
+		const result = safeStringifyObject(value);
+		return result !== ERROR_MESSAGES.EMPTY_OBJECT ? result : ERROR_MESSAGES.EMPTY_OBJECT;
 	}
 	const stringValue = String(value).trim();
 	return stringValue.length ? stringValue : null;
