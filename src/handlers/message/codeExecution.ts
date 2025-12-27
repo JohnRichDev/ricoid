@@ -5,6 +5,7 @@ import { readDiscordMessages } from '../../discord/operations.js';
 import { getCachedSettings } from '../../config/index.js';
 import { shouldShowConfirmation } from '../../commands/utility/settings/confirmationModule.js';
 import { createAIConfirmation } from '../../util/confirmationSystem.js';
+import { safeStringifyError } from '../../util/helpers.js';
 
 async function handleCodeExecutionConfirmationInternal(code: string, message?: Message): Promise<string | null> {
 	const settings = getCachedSettings();
@@ -132,20 +133,7 @@ function formatResult(finalResult: any, capturedOutput: string[]): string {
 }
 
 function extractErrorMessage(error: unknown): string {
-	if (error instanceof Error) {
-		return `${error.name}: ${error.message}`;
-	}
-	if (typeof error === 'string') {
-		return error;
-	}
-	if (error && typeof error === 'object') {
-		try {
-			return JSON.stringify(error);
-		} catch {
-			return '[Error object]';
-		}
-	}
-	return String(error);
+	return safeStringifyError(error);
 }
 
 export async function executeCodeWithRetries(code: string, message?: Message): Promise<string> {
