@@ -12,6 +12,7 @@ import { findServer, findTextChannel } from './core.js';
 import { GuildMember } from 'discord.js';
 import { readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
+import { ERROR_MESSAGES, OPERATION_REASONS } from '../../util/constants.js';
 
 const WARNINGS_FILE = join(process.cwd(), 'data', 'warnings.json');
 
@@ -230,9 +231,10 @@ export async function lockChannel({ server, channel, locked }: LockChannelData):
 function filterMembersToKick(members: any, criteria: string): any[] {
 	const toKick: any[] = [];
 	for (const member of members.values()) {
-		if (member.user.bot && criteria === 'bots') {
-			toKick.push(member);
-		} else if (criteria === 'no_roles' && member.roles.cache.size === 1) {
+		const shouldKick =
+			(member.user.bot && criteria === 'bots') || (criteria === 'no_roles' && member.roles.cache.size === 1);
+
+		if (shouldKick) {
 			toKick.push(member);
 		}
 	}
@@ -243,9 +245,10 @@ async function performMassKick(members: any[], reason?: string): Promise<string[
 	const kicked = [];
 	for (const member of members) {
 		try {
-			await member.kick(reason || 'Mass kick operation');
+			await member.kick(reason || OPERATION_REASONS.MASS_KICK);
 			kicked.push(member.user.username);
-		} catch {
+		} catch (error) {
+			console.error(`${ERROR_MESSAGES.MASS_KICK_FAILED_PREFIX}:`, error);
 			continue;
 		}
 	}
@@ -262,9 +265,10 @@ async function performMassBan(
 
 	for (const userId of userIds) {
 		try {
-			await guild.members.ban(userId, { reason: reason || 'Mass ban operation' });
+			await guild.members.ban(userId, { reason: reason || OPERATION_REASONS.MASS_BAN });
 			banned.push(userId);
 		} catch (error) {
+			console.error(`${ERROR_MESSAGES.MASS_BAN_FAILED_PREFIX} ${userId}:`, error);
 			failed.push(userId);
 		}
 	}
