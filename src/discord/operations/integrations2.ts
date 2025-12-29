@@ -1,9 +1,4 @@
-import type {
-	GithubIssueData,
-	TwitterPostData,
-	YoutubeNotifyData,
-	TwitchNotifyData,
-} from '../../types/index.js';
+import type { GithubIssueData, TwitterPostData, YoutubeNotifyData, TwitchNotifyData } from '../../types/index.js';
 
 export async function githubIssue({ repo, title, body, labels }: GithubIssueData): Promise<string> {
 	return JSON.stringify({
