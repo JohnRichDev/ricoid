@@ -2049,7 +2049,10 @@ export function createAITools() {
 					type: Type.OBJECT,
 					properties: {
 						text: { type: Type.STRING, description: 'Text to translate' },
-						targetLanguage: { type: Type.STRING, description: 'Target language or style (e.g., "Spanish", "Pirate", "Yoda", "Shakespearean")' },
+						targetLanguage: {
+							type: Type.STRING,
+							description: 'Target language or style (e.g., "Spanish", "Pirate", "Yoda", "Shakespearean")',
+						},
 						style: { type: Type.STRING, description: 'Additional style modifiers (optional)' },
 					},
 					required: ['text', 'targetLanguage'],
